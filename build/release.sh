@@ -144,9 +144,9 @@ mkdir -p $ROOTFS/root/SourceCode/SBC-GS
 cp -r ../gs ../pics $ROOTFS/root/SourceCode/SBC-GS
 
 # run build script
-cp build.sh $ROOTFS/root/build.sh
+cp *.sh $ROOTFS/root/
 chroot $ROOTFS env BOARD=$BOARD /root/build.sh
-rm $ROOTFS/root/build.sh
+rm $ROOTFS/root/*.sh
 
 # add release info
 BUILD_DATE=$(date "+%Y-%m-%d")
