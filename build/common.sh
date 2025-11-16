@@ -18,6 +18,7 @@ install_dependencies() {
         build-essential \
         bison \
         ca-certificates \
+        gpg \
         cmake \
         curl \
         dkms \
