@@ -24,7 +24,10 @@ board_upgrade
 install_dependencies
 install_locales
 install_wifi_drivers
+
+apt -y install firmware-atheros # required by install_intree_kmods
 install_intree_kmods
+
 install_wfb_ng
 install_pixelpilot
 install_msposd

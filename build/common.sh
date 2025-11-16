@@ -84,8 +84,7 @@ install_dependencies() {
         sshpass \
         tcpdump \
         tftpd-hpa \
-        tree \
-        firmware-atheros
+        tree
     pip install --break-system-packages evdev dotenv
 }
 
