@@ -93,15 +93,6 @@ expand_and_mount_image() {
     echo_blue "Expanding and mounting image..."
     cd "$BUILD_DIR"
 
-    local disk_free_space
-    disk_free_space=$(df -P . | tail -1 | awk '{print $4}')
-    local disk_free_space_gb
-    disk_free_space_gb=$((disk_free_space / 1048576 - 2)) # 2GB for .xz
-    if [ "$disk_free_space_gb" -lt "$DISK_NEW_SIZE_GB" ]; then
-        echo_red "Error: not enough free space. Need at least $((DISK_NEW_SIZE_GB - disk_free_space_gb))G more."
-        exit 1
-    fi
-
     truncate -s +"${DISK_ADD_SIZE_GB}G" "$IMAGE"
     LOOPDEV=$(losetup -P --show -f "$IMAGE")
     ROOT_DEV=${LOOPDEV}p${ROOT_PART}
