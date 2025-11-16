@@ -220,13 +220,10 @@ install_pixelpilot() {
     git submodule update --init --recursive
     cmake -B build
     cmake --build build -j$(nproc) --target install
-    popd
 
     # Install PixelPilot files
-    pushd SBC-GS/gs
-    cp pixelpilot.yaml /etc
-    cp gsmenu.sh /usr/local/bin
-    popd
+    cp /opt/GroundStation/gs/pixelpilot.yaml /etc
+    cp /opt/GroundStation/gs/gsmenu.sh /usr/local/bin
 }
 
 install_msposd() {
@@ -264,10 +261,8 @@ install_rubyfpv() {
 }
 
 install_sbc_gs_cc() {
-    cd /opt/build
-    pushd SBC-GS/gs
+    cd /opt/GroundStation/gs/
     ./install.sh
-    popd
 }
 
 install_alink() {
