@@ -22,4 +22,4 @@ if [ ! -f "$build_script_path/$build_script" ]; then
     exit 1
 fi
 
-$build_script_path/$build_script
+bash $build_script_path/$build_script
