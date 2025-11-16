@@ -10,7 +10,7 @@ export LC_ALL=POSIX
 export LANG=POSIX
 
 if [ -z "$BOARD" ]; then
-    echo "BOARD is not set. Please set it in gs.conf"
+    echo "BOARD is not set"
     exit 1
 fi
 

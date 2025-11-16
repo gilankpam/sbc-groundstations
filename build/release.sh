@@ -136,7 +136,7 @@ cp -r ../gs ../pics $ROOTFS/root/SourceCode/SBC-GS
 
 # run build script
 cp build.sh $ROOTFS/root/build.sh
-chroot $ROOTFS /root/build.sh
+chroot $ROOTFS env BOARD=$BOARD /root/build.sh
 rm $ROOTFS/root/build.sh
 
 # add release info
