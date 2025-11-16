@@ -12,7 +12,7 @@ source config
 
 cleanup() {
     set +e
-    mount | grep "${build_dir}/${ROOTFS}" | awk '{print $3}' | sort -r | xargs -I {} umount {}
+    mount | grep "${build_dir}/${ROOTFS}" | awk '{print $3}' | sort -r | xargs -I {} umount -R {}
     losetupList=$(losetup | grep "${build_dir}" | cut -d ' ' -f 1)
     if [ -n "$losetupList" ]; then
         for loopdev in $losetupList; do
@@ -143,7 +143,6 @@ cp -r ../gs ../pics $ROOTFS/root/SourceCode/SBC-GS
 
 # run build script
 cp *.sh $ROOTFS/root/
-ls -alh $ROOTFS/root/
 chroot $ROOTFS env BOARD=$BOARD /root/build.sh
 rm $ROOTFS/root/*.sh
 

@@ -8,7 +8,7 @@ export LANGUAGE=POSIX
 export LC_ALL=POSIX
 export LANG=POSIX
 
-source common.sh
+source /root/common.sh
 
 # Remove unnecessary package for xface base image [ need remove more unnecessary package ]
 if dpkg -l | grep -q xface4;
