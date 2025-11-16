@@ -17,6 +17,7 @@ install_dependencies() {
     apt -y install \
         build-essential \
         bison \
+        ca-certificates \
         cmake \
         curl \
         dkms \
