@@ -28,8 +28,7 @@ if [ -n "$losetupList" ]; then
 	done
 fi
 
-apt update
-apt install -y gdisk dosfstools
+# apt update && apt install -y gdisk dosfstools parted fdisk xz-utils
 
 IMAGE=$(ls | grep $(basename "$IMAGE_URL" ${IMAGE_URL: -3}) | grep .img$ ) || true # Search basename.img
 if [ -f "$IMAGE" ]; then
@@ -86,54 +85,35 @@ truncate -s ${diskNewSize}G $IMAGE
 LOOPDEV=$(losetup -P --show -f $IMAGE)
 # ROOT_PART=$(sgdisk -p $LOOPDEV | grep "rootfs" | tail -n 1 | tr -s ' ' | cut -d ' ' -f 2)
 # Base image build by rsdk have no rootfs flag
-ROOT_PART="3"
+ROOT_PART="1"
 ROOT_DEV=${LOOPDEV}p${ROOT_PART}
 
 # move second/backup GPT header to end of disk
 sgdisk -ge $LOOPDEV
 
-# refresh partition table
-# kpartx -a /dev/loop
 
-# Change config partition type GUID from Linux to Windows
-# 8300(0FC63DAF-8483-4772-8E79-3D69D8477DE4) -> 0700(EBD0A0A2-B9E5-4433-87C0-68B6B72699C7)
-CONFIG_PART_NUM=1
-CONFIG_PART_TYPE=$(lsblk -o PARTTYPE ${LOOPDEV}p${CONFIG_PART_NUM})
-[ "$CONFIG_PART_TYPE" == "EBD0A0A2-B9E5-4433-87C0-68B6B72699C7" ] || sgdisk --typecode=${CONFIG_PART_NUM}:0700 $LOOPDEV
-
-# expand root patition size
+# # # expand root patition size
 parted -s $LOOPDEV resizepart $ROOT_PART 100%
 
-# expand rootfs
+# # # expand rootfs
 e2fsck -yf $ROOT_DEV
 resize2fs $ROOT_DEV
 
 # mount rootfs and config
 [ -d $ROOTFS ] || mkdir $ROOTFS
 mount $ROOT_DEV $ROOTFS
-mount ${LOOPDEV}p1 $ROOTFS/config
 mount -t proc /proc $ROOTFS/proc
 mount -t sysfs /sys $ROOTFS/sys
 mount -o bind /dev $ROOTFS/dev
 mount -o bind /run $ROOTFS/run
 mount -t devpts devpts $ROOTFS/dev/pts
 
-# reformat config partition to fat16 for macos compatible
-config_partition_UUID=$(grep -oP "(?<=^UUID=).*(?=\s/config)" ${ROOTFS}/etc/fstab | tr -d -)
-[ -d config_tmp ] || mkdir config_tmp
-cp -a $ROOTFS/config/* config_tmp/
-umount $ROOTFS/config
-mkfs.fat -F 16 -n config -i ${config_partition_UUID} ${LOOPDEV}p1
-mount ${LOOPDEV}p1 $ROOTFS/config
-mv config_tmp/* $ROOTFS/config/
-rmdir config_tmp
 
 # copy gs code to target rootfs
 mkdir -p $ROOTFS/root/SourceCode/SBC-GS
 cp -r ../gs ../pics $ROOTFS/root/SourceCode/SBC-GS
 
 # run build script
-# chroot $ROOTFS /bin/bash
 cp build.sh $ROOTFS/root/build.sh
 chroot $ROOTFS /root/build.sh
 rm $ROOTFS/root/build.sh
@@ -162,30 +142,30 @@ umount -R $ROOTFS
 rm -r $ROOTFS
 
 # shrink image
-SECTOR_SIZE=$(sgdisk -p $ROOT_DEV | grep -oP "(?<=: )\d+(?=/)")
-START_SECTOR=$(sgdisk -i $ROOT_PART $LOOPDEV | grep "First sector:" | cut -d ' ' -f 3)
-TOTAL_BLOCKS=$(tune2fs -l $ROOT_DEV | grep '^Block count:' | tr -s ' ' | cut -d ' ' -f 3)
-e2fsck -yf $ROOT_DEV
-TARGET_BLOCKS=$(resize2fs -P $ROOT_DEV 2> /dev/null | cut -d ' ' -f 7)
-BLOCK_SIZE=$(tune2fs -l $ROOT_DEV | grep '^Block size:' | tr -s ' ' | cut -d ' ' -f 3)
-resize2fs -M $ROOT_DEV
-TOTAL_BLOCKS_SHRINKED=$(sudo tune2fs -l "$ROOT_DEV" | grep '^Block count:' | tr -s ' ' | cut -d ' ' -f 3)
-sync $ROOT_DEV
-NEW_SIZE=$(( $START_SECTOR * $SECTOR_SIZE + $TARGET_BLOCKS * $BLOCK_SIZE ))
-cat << EOF | parted ---pretend-input-tty $LOOPDEV > /dev/null 2>&1
-resizepart $ROOT_PART 
-${NEW_SIZE}B
-yes
-EOF
-END_SECTOR=$(sgdisk -i $ROOT_PART $LOOPDEV | grep "Last sector:" | cut -d ' ' -f 3)
-FINAL_SIZE=$(( ($END_SECTOR + 34) * $SECTOR_SIZE ))
+# SECTOR_SIZE=$(sgdisk -p $ROOT_DEV | grep -oP "(?<=: )\d+(?=/)")
+# START_SECTOR=$(sgdisk -i $ROOT_PART $LOOPDEV | grep "First sector:" | cut -d ' ' -f 3)
+# TOTAL_BLOCKS=$(tune2fs -l $ROOT_DEV | grep '^Block count:' | tr -s ' ' | cut -d ' ' -f 3)
+# e2fsck -yf $ROOT_DEV
+# TARGET_BLOCKS=$(resize2fs -P $ROOT_DEV 2> /dev/null | cut -d ' ' -f 7)
+# BLOCK_SIZE=$(tune2fs -l $ROOT_DEV | grep '^Block size:' | tr -s ' ' | cut -d ' ' -f 3)
+# resize2fs -M $ROOT_DEV
+# TOTAL_BLOCKS_SHRINKED=$(sudo tune2fs -l "$ROOT_DEV" | grep '^Block count:' | tr -s ' ' | cut -d ' ' -f 3)
+# sync $ROOT_DEV
+# NEW_SIZE=$(( $START_SECTOR * $SECTOR_SIZE + $TARGET_BLOCKS * $BLOCK_SIZE ))
+# cat << EOF | parted ---pretend-input-tty $LOOPDEV > /dev/null 2>&1
+# resizepart $ROOT_PART 
+# ${NEW_SIZE}B
+# yes
+# EOF
+# END_SECTOR=$(sgdisk -i $ROOT_PART $LOOPDEV | grep "Last sector:" | cut -d ' ' -f 3)
+# FINAL_SIZE=$(( ($END_SECTOR + 34) * $SECTOR_SIZE ))
 
-losetup -d $LOOPDEV
-truncate --size=$FINAL_SIZE $IMAGE > /dev/null
-sgdisk -ge $IMAGE > /dev/null
-sgdisk -v $IMAGE > /dev/null
+# losetup -d $LOOPDEV
+# truncate --size=$FINAL_SIZE $IMAGE > /dev/null
+# sgdisk -ge $IMAGE > /dev/null
+# sgdisk -v $IMAGE > /dev/null
 
-echo "Image shrunked from ${TOTAL_BLOCKS} to ${TOTAL_BLOCKS_SHRINKED}."
+# echo "Image shrunked from ${TOTAL_BLOCKS} to ${TOTAL_BLOCKS_SHRINKED}."
 
 # compression image and rename xz file
 xz -v -T0 $IMAGE

@@ -10,36 +10,32 @@ export LC_ALL=POSIX
 export LANG=POSIX
 
 # add dns server
-echo "nameserver 8.8.8.8" >> /etc/resolv.conf
+rm /etc/resolv.conf
+echo "nameserver 192.168.10.1" > /etc/resolv.conf
 
-# Remove unnecessary package for xface base image [ need remove more unnecessary package ]
-if dpkg -l | grep -q xface4; then
-	apt purge -y xfce4* lightdm* liblightdm-gobject-1-0 libupower-glib3 libxklavier16 upower chromium-x11 xserver-xorg-core xserver-xorg-legacy rockchip-chromium-x11-utils firefox-esr x11-apps
-	# fix radxa-sddm-theme uninstall issue
-	mkdir -p /usr/share/sddm/themes/breeze
-	touch /usr/share/sddm/themes/breeze/Main.qml
-	# fix radxa-system-config-rockchip uninstall issue
-	[ -f /etc/modprobe.d/panfrost.conf.bak ] && rm /etc/modprobe.d/panfrost.conf.bak
-	apt autoremove -y --purge
-fi
-
-# Update bullseye-backports source URL
-sed -i 's|https://deb.debian.org/debian|http://archive.debian.org/debian|g' /etc/apt/sources.list.d/50-bullseye-backports.list
+[ -d /config ] || mkdir -p mkdir /config
 
 # Update system to date
+export DEBIAN_FRONTEND=noninteractive
 apt update
-DEBIAN_FRONTEND=noninteractive apt dist-upgrade -y --allow-downgrades -o Dpkg::Options::="--force-confnew"
-apt install -y git cmake dkms build-essential pkg-config libevent-dev unzip flex bison libssl-dev
-
-# Remove old kernel in radxa-zero3_debian_bullseye_xfce_b6.img
-dpkg -l | grep -q "linux-image-5.10.160-26-rk356x" && apt purge -y linux-image-5.10.160-26-rk356x linux-headers-5.10.160-26-rk356x
+apt install -y git cmake dkms build-essential pkg-config libevent-dev unzip flex bison libssl-dev linux-headers-vendor-rk35xx curl
 
 # Generating locales
 sed -i 's/^# *\(en_US.UTF-8 UTF-8\)/\1/' /etc/locale.gen
 locale-gen
 update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
-## 
+# Add radxa rk3566 repo
+keyring="$(mktemp)"
+version="$(curl -L https://github.com/radxa-pkg/radxa-archive-keyring/releases/latest/download/VERSION)"
+curl -L --output "$keyring" "https://github.com/radxa-pkg/radxa-archive-keyring/releases/latest/download/radxa-archive-keyring_${version}_all.deb"
+dpkg -i "$keyring"
+rm -f "$keyring"
+tee /etc/apt/sources.list.d/70-radxa-rk3566.list <<< "deb [signed-by=/usr/share/keyrings/radxa-archive-keyring.gpg] https://radxa-repo.github.io/rk3566-bookworm/ rk3566-bookworm main"
+tee /etc/apt/sources.list.d/80-radxa.list <<< "deb [signed-by=/usr/share/keyrings/radxa-archive-keyring.gpg] https://radxa-repo.github.io/bookworm/ bookworm main"
+
+apt update
+
 KVER=$(ls /lib/modules | tail -n 1)
 [ -d /root/SourceCode ] || mkdir -p /root/SourceCode
 cd /root/SourceCode
@@ -109,46 +105,6 @@ blacklist rtw_8822cu
 EOF
 popd
 
-# intree kmods
-git clone --depth=1 -b linux-5.10-gen-rkr4.1 https://github.com/radxa/kernel /usr/src/linux-source-${KVER}
-pushd /usr/src/linux-source-${KVER}
-cp /lib/modules/${KVER}/build/Module.symvers .
-cp /boot/System.map-${KVER} System.map
-cp /boot/config-${KVER} .config
-
-# enable AR9271
-sed -i 's/^# CONFIG_ATH9K_HTC is not set$/CONFIG_ATH9K_HTC=m/' .config
-# enable MT7612U
-sed -i 's/^# CONFIG_MT76x2U is not set$/CONFIG_MT76x2U=m/' .config
-# enable joydev input
-sed -i 's/^# CONFIG_INPUT_JOYDEV is not set$/CONFIG_INPUT_JOYDEV=m/' .config
-# enable INA2XX sensors
-sed -i 's/^# CONFIG_SENSORS_INA2XX is not set$/CONFIG_SENSORS_INA2XX=m/' .config
-
-make olddefconfig
-make prepare modules_prepare
-
-# AR9271
-apt install firmware-atheros
-make -j$(nproc) M=drivers/net/wireless/ath modules
-make M=drivers/net/wireless/ath modules_install KERNELRELEASE=${KVER}
-
-# MT7612U
-make -j$(nproc) M=drivers/net/wireless/mediatek/mt76 modules
-make M=drivers/net/wireless/mediatek/mt76 modules_install KERNELRELEASE=${KVER}
-
-# INPUT_JOYDEV
-make -j$(nproc) M=drivers/input/joystick modules
-make M=drivers/input/joystick modules_install KERNELRELEASE=${KVER}
-
-# INA2XX
-make -j$(nproc) M=drivers/hwmon modules
-make M=drivers/hwmon modules_install KERNELRELEASE=${KVER}
-
-# cleanup kernel source but keep .git to save space
-rm -rf *
-popd
-
 # wfb-ng
 git clone -b master --depth=1 https://github.com/svpcom/wfb-ng.git
 pushd wfb-ng
@@ -164,10 +120,6 @@ apt --no-install-recommends -y install libgstreamer1.0-dev libgstreamer-plugins-
 
 git clone --depth=1 https://github.com/OpenIPC/PixelPilot_rk.git
 pushd PixelPilot_rk
-
-# Temporarily use pr#62 for test
-# git fetch origin pull/62/head:pr-62
-# git checkout pr-62
 
 git submodule update --init --recursive
 cmake -B build
@@ -198,16 +150,16 @@ cp -a osd.rockchip /usr/local/bin/wfb-ng-osd
 popd
 
 # RubyFPV
-rubyfpv_version="11.1"
-apt -y install build-essential librockchip-mpp-dev libdrm-dev libcairo-dev libpcap-dev libi2c-dev libgpiod-dev wireless-tools
-git clone --depth=1 --branch $rubyfpv_version --single-branch https://github.com/RubyFPV/RubyFPV.git
-pushd RubyFPV
-make all RUBY_BUILD_ENV=radxa
+# rubyfpv_version="11.1"
+# apt -y install build-essential librockchip-mpp-dev libdrm-dev libcairo-dev libpcap-dev libi2c-dev libgpiod-dev wireless-tools
+# git clone --depth=1 --branch $rubyfpv_version --single-branch https://github.com/RubyFPV/RubyFPV.git
+# pushd RubyFPV
+# make all RUBY_BUILD_ENV=radxa
 
-mkdir -p /home/radxa/ruby/plugins/osd
-cp -a ruby_* test_* res version_ruby_base.txt /home/radxa/ruby
-cp -a ruby_plugin_* /home/radxa/ruby/plugins/osd
-popd
+# mkdir -p /home/radxa/ruby/plugins/osd
+# cp -a ruby_* test_* res version_ruby_base.txt /home/radxa/ruby
+# cp -a ruby_plugin_* /home/radxa/ruby/plugins/osd
+# popd
 
 # SBC-GS-CC
 pushd SBC-GS/gs
@@ -215,7 +167,7 @@ pushd SBC-GS/gs
 popd
 
 # alink
-alink_latest_tag=$(curl -s https://api.github.com/repos/OpenIPC/adaptive-link/tags | jq -r '.[0].name')
+alink_latest_tag="v0.63"
 wget "https://github.com/OpenIPC/adaptive-link/releases/download/${alink_latest_tag}/alink_gs" -O /usr/local/bin/alink && chmod +x /usr/local/bin/alink
 wget "https://raw.githubusercontent.com/OpenIPC/adaptive-link/refs/heads/main/alink_gs.conf" -O /config/alink.conf
 ln -s /config/alink.conf /etc/alink.conf
@@ -242,10 +194,10 @@ WantedBy=multi-user.target
 EOF
 
 # install useful packages
-DEBIAN_FRONTEND=noninteractive apt -y install lrzsz net-tools socat netcat exfatprogs ifstat fbi picocom bridge-utils \
+DEBIAN_FRONTEND=noninteractive apt -y install lrzsz net-tools socat netcat-traditional exfatprogs ifstat fbi picocom bridge-utils \
        console-setup psmisc ethtool drm-info libdrm-tests proxychains4 chrony gpsd gpsd-clients tcpdump iptables-persistent \
-       dosfstools sshpass fake-hwclock tree evtest python3-dev tftpd-hpa isc-dhcp-client joystick
-pip install evdev dotenv
+       dosfstools sshpass fake-hwclock tree evtest python3-dev tftpd-hpa isc-dhcp-client joystick python3-pip
+pip install --break-system-packages evdev dotenv
 
 # snander
 wget "https://github.com/OpenIPC/snander-mstar/releases/download/latest/snander-linux.zip"
@@ -264,19 +216,11 @@ make install
 popd
 
 # disable services
-sed -i '/disable_service systemd-networkd/a disable_service dnsmasq' /config/before.txt
-# systemctl disable tftpd-hpa
 update-rc.d -f tftpd-hpa remove
 
-# enable services
-sed -i "s/disable_service systemd-networkd/# disable_service systemd-networkd/" /config/before.txt
-sed -i "s/disable_service ssh/# disable_service ssh/" /config/before.txt
-sed -i "s/disable_service nmbd/# disable_service nmbd/" /config/before.txt
-sed -i "s/disable_service smbd/# disable_service smbd/" /config/before.txt
-
-# disable auto extend root partition and rootfs
-apt purge -y cloud-initramfs-growroot
-sed -i "s/resize_root/# resize_root/" /config/before.txt
+# # enable services
+systemctl enable systemd-networkd
+systemctl enable ssh
 
 # umanage NICs from NetwrkManager
 cat > /etc/NetworkManager/conf.d/00-gs-unmanaged.conf << EOF
@@ -288,8 +232,6 @@ EOF
 echo "root:root" | chpasswd
 # permit root login over ssh
 sed -i "s/#PermitRootLogin.*/PermitRootLogin yes/" /etc/ssh/sshd_config
-# sync mount /config
-sed -i 's/\(UUID=\S*\s*\/config\s*vfat\s*defaults,x-systemd.automount\)/\1,sync/' /etc/fstab
 # set gpsd not listen on ipv6
 sed -i "/ListenStream=\[::1\]:2947/s/^/# /" /lib/systemd/system/gpsd.socket
 # set chrony use gps time
