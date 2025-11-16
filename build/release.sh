@@ -142,30 +142,35 @@ umount -R $ROOTFS
 rm -r $ROOTFS
 
 # shrink image
-# SECTOR_SIZE=$(sgdisk -p $ROOT_DEV | grep -oP "(?<=: )\d+(?=/)")
-# START_SECTOR=$(sgdisk -i $ROOT_PART $LOOPDEV | grep "First sector:" | cut -d ' ' -f 3)
-# TOTAL_BLOCKS=$(tune2fs -l $ROOT_DEV | grep '^Block count:' | tr -s ' ' | cut -d ' ' -f 3)
-# e2fsck -yf $ROOT_DEV
-# TARGET_BLOCKS=$(resize2fs -P $ROOT_DEV 2> /dev/null | cut -d ' ' -f 7)
-# BLOCK_SIZE=$(tune2fs -l $ROOT_DEV | grep '^Block size:' | tr -s ' ' | cut -d ' ' -f 3)
-# resize2fs -M $ROOT_DEV
-# TOTAL_BLOCKS_SHRINKED=$(sudo tune2fs -l "$ROOT_DEV" | grep '^Block count:' | tr -s ' ' | cut -d ' ' -f 3)
-# sync $ROOT_DEV
-# NEW_SIZE=$(( $START_SECTOR * $SECTOR_SIZE + $TARGET_BLOCKS * $BLOCK_SIZE ))
-# cat << EOF | parted ---pretend-input-tty $LOOPDEV > /dev/null 2>&1
-# resizepart $ROOT_PART 
-# ${NEW_SIZE}B
-# yes
-# EOF
-# END_SECTOR=$(sgdisk -i $ROOT_PART $LOOPDEV | grep "Last sector:" | cut -d ' ' -f 3)
-# FINAL_SIZE=$(( ($END_SECTOR + 34) * $SECTOR_SIZE ))
+e2fsck -yf $ROOT_DEV
+resize2fs -M $ROOT_DEV
 
-# losetup -d $LOOPDEV
-# truncate --size=$FINAL_SIZE $IMAGE > /dev/null
-# sgdisk -ge $IMAGE > /dev/null
-# sgdisk -v $IMAGE > /dev/null
+sync
 
-# echo "Image shrunked from ${TOTAL_BLOCKS} to ${TOTAL_BLOCKS_SHRINKED}."
+# Get the necessary information
+BLOCK_SIZE=$(tune2fs -l $ROOT_DEV | grep '^Block size:' | tr -s ' ' | cut -d ' ' -f 3)
+BLOCKS_COUNT=$(tune2fs -l $ROOT_DEV | grep '^Block count:' | tr -s ' ' | cut -d ' ' -f 3)
+START_SECTOR=$(sgdisk -i $ROOT_PART $LOOPDEV | grep "First sector:" | cut -d ' ' -f 3)
+SECTOR_SIZE=$(blockdev --getss $LOOPDEV)
+
+# Calculate the new partition size in sectors
+NEW_PART_SIZE_SECTORS=$(( (BLOCKS_COUNT * BLOCK_SIZE) / SECTOR_SIZE ))
+NEW_LAST_SECTOR=$(( START_SECTOR + NEW_PART_SIZE_SECTORS - 1 ))
+
+# Resize the partition
+sgdisk --move-second-header $LOOPDEV
+sgdisk -e $LOOPDEV
+parted -s $LOOPDEV resizepart $ROOT_PART ${NEW_LAST_SECTOR}s
+
+# Calculate the final image size
+FINAL_IMG_SIZE_BYTES=$(( (NEW_LAST_SECTOR + 2) * SECTOR_SIZE ))
+
+losetup -d $LOOPDEV
+truncate -s $FINAL_IMG_SIZE_BYTES $IMAGE
+sgdisk --move-second-header $IMAGE
+sgdisk -v $IMAGE
+
+echo "Image shrunk."
 
 # compression image and rename xz file
 xz -v -T0 $IMAGE
