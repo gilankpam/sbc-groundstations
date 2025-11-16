@@ -10,6 +10,24 @@ cd $build_dir
 
 source config
 
+cleanup() {
+    echo "--- Running cleanup ---"
+    set +e
+    mount | grep "${build_dir}/${ROOTFS}" | awk '{print $3}' | sort -r | xargs -I {} umount {}
+    losetupList=$(losetup | grep "${build_dir}" | cut -d ' ' -f 1)
+    if [ -n "$losetupList" ]; then
+        for loopdev in $losetupList; do
+            losetup -d $loopdev
+        done
+    fi
+    if [ -d "$ROOTFS" ]; then
+        rm -r "$ROOTFS"
+    fi
+    echo "--- Cleanup finished ---"
+}
+
+trap cleanup EXIT
+
 # Checking free space
 diskFreeSpace=$(df -P . | tail -1 | awk '{print $4}')
 diskNewSize=14 # GB
@@ -17,15 +35,6 @@ diskFreeSpaceGB=$(( $diskFreeSpace/1048576 - 2 )) # 2GB for .xz
 if [ $diskFreeSpaceGB -lt $diskNewSize ];then
 	echo "Error: not enough free space. Not enough $(( $diskNewSize - $diskFreeSpaceGB ))G"
 	exit 1
-fi
-
-# cleanup build env
-mount | grep -q "${build_dir}/${ROOTFS}" && umount -R $ROOTFS
-losetupList=$(losetup | grep "${build_dir}" | cut -d ' ' -f 1)
-if [ -n "$losetupList" ]; then
-	for loopdev in $losetupList; do
-		losetup -d $loopdev
-	done
 fi
 
 # apt update && apt install -y gdisk dosfstools parted fdisk xz-utils
@@ -158,10 +167,6 @@ echo "VERSION=\"${VERSION}\"" >> $ROOTFS/etc/gs-release
 echo "==============show gs-release============"
 cat $ROOTFS/etc/gs-release
 
-# umount
-umount -R $ROOTFS
-rm -r $ROOTFS
-
 # shrink image
 # e2fsck -yf $ROOT_DEV
 # resize2fs -M $ROOT_DEV
@@ -186,7 +191,6 @@ rm -r $ROOTFS
 # # Calculate the final image size
 # FINAL_IMG_SIZE_BYTES=$(( (NEW_LAST_SECTOR + 2) * SECTOR_SIZE ))
 
-losetup -d $LOOPDEV
 # truncate -s $FINAL_IMG_SIZE_BYTES $IMAGE
 # sgdisk --move-second-header $IMAGE
 # sgdisk -v $IMAGE
