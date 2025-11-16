@@ -21,8 +21,8 @@ install_dependencies
 apt install -y linux-headers-vendor-rk35xx
 
 install_locales
-install_wifi_drivers
 install_wfb_ng
+install_wifi_drivers
 install_pixelpilot
 install_msposd
 install_wfb_osd
