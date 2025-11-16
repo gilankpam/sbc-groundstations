@@ -8,7 +8,7 @@ export LANGUAGE=POSIX
 export LC_ALL=POSIX
 export LANG=POSIX
 
-source common.sh
+source ./common.sh
 
 board_upgrade
 
