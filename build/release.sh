@@ -142,11 +142,11 @@ build_in_chroot() {
     echo_blue "Building in chroot..."
     cd "$BUILD_DIR"
 
-    mkdir -p "$ROOTFS/root/SourceCode/SBC-GS"
-    cp -r ../gs ../pics "$ROOTFS/root/SourceCode/SBC-GS"
-    cp *.sh "$ROOTFS/root/"
-    chroot "$ROOTFS" env BOARD="$BOARD" /root/build.sh
-    rm "$ROOTFS/root/"*.sh
+    mkdir -p "${ROOTFS}/opt/GroundStation"
+    mkdir -p "${ROOTFS}/opt/build"
+    cp -r ../gs ../pics "${ROOTFS}/opt/GroundStation"
+    cp *.sh "${ROOTFS}/opt/build/"
+    chroot "$ROOTFS" env BOARD="$BOARD" /opt/build/build.sh
 }
 
 #

@@ -97,8 +97,7 @@ install_locales() {
 
 install_wifi_drivers() {
     KVER=$(ls /lib/modules | tail -n 1)
-    [ -d /root/SourceCode ] || mkdir -p /root/SourceCode
-    cd /root/SourceCode
+    cd /opt/build
 
     # 8812au
     git clone -b v5.2.20 --depth=1 https://github.com/svpcom/rtl8812au.git
@@ -165,6 +164,7 @@ EOF
 }
 
 install_intree_kmods() {
+    KVER=$(ls /lib/modules | tail -n 1)
     git clone --depth=1 -b linux-5.10-gen-rkr4.1 https://github.com/radxa/kernel /usr/src/linux-source-${KVER}
     pushd /usr/src/linux-source-${KVER}
     cp /lib/modules/${KVER}/build/Module.symvers .
@@ -205,7 +205,7 @@ install_intree_kmods() {
 }
 
 install_wfb_ng() {
-    cd /root/SourceCode
+    cd /opt/build
     git clone -b master --depth=1 https://github.com/svpcom/wfb-ng.git
     pushd wfb-ng
     ./scripts/install_gs.sh wlanx
@@ -215,7 +215,7 @@ install_wfb_ng() {
 }
 
 install_pixelpilot() {
-    cd /root/SourceCode
+    cd /opt/build
     git clone --depth=1 https://github.com/OpenIPC/PixelPilot_rk.git
     pushd PixelPilot_rk
 
@@ -232,7 +232,7 @@ install_pixelpilot() {
 }
 
 install_msposd() {
-    cd /root/SourceCode
+    cd /opt/build
     wget -q https://github.com/OpenIPC/msposd/releases/download/latest/msposd_rockchip -O /usr/local/bin/msposd
     chmod +x /usr/local/bin/msposd
     wget -q https://raw.githubusercontent.com/OpenIPC/msposd/main/fonts/font_ardu.png -O /usr/share/fonts/font_ardu.png
@@ -244,7 +244,7 @@ install_msposd() {
 }
 
 install_wfb_osd() {
-    cd /root/SourceCode
+    cd /opt/build
     git clone --recursive --depth=1 https://github.com/svpcom/wfb-ng-osd.git
     pushd wfb-ng-osd
     make osd mode=rockchip
@@ -253,7 +253,7 @@ install_wfb_osd() {
 }
 
 install_rubyfpv() {
-    cd /root/SourceCode
+    cd /opt/build
     rubyfpv_version="11.1"
     git clone --depth=1 --branch $rubyfpv_version --single-branch https://github.com/RubyFPV/RubyFPV.git
     pushd RubyFPV
@@ -266,14 +266,14 @@ install_rubyfpv() {
 }
 
 install_sbc_gs_cc() {
-    cd /root/SourceCode
+    cd /opt/build
     pushd SBC-GS/gs
     ./install.sh
     popd
 }
 
 install_alink() {
-    cd /root/SourceCode
+    cd /opt/build
     alink_latest_tag="v0.63"
     wget "https://github.com/OpenIPC/adaptive-link/releases/download/${alink_latest_tag}/alink_gs" -O /usr/local/bin/alink && chmod +x /usr/local/bin/alink
     wget "https://raw.githubusercontent.com/OpenIPC/adaptive-link/refs/heads/main/alink_gs.conf" -O /config/alink.conf
@@ -281,7 +281,7 @@ install_alink() {
 }
 
 install_ttyd() {
-    cd /root/SourceCode
+    cd /opt/build
     ttyd_version="1.7.7"
     wget "https://github.com/tsl0922/ttyd/releases/download/${ttyd_version}/ttyd.aarch64" -O /usr/local/bin/ttyd
     chmod +x /usr/local/bin/ttyd
@@ -304,7 +304,7 @@ EOF
 }
 
 install_misc_tools() {
-    cd /root/SourceCode
+    cd /opt/build
     # snander
     wget "https://github.com/OpenIPC/snander-mstar/releases/download/latest/snander-linux.zip"
     unzip snander-linux.zip snander -d /usr/local/bin
@@ -398,7 +398,7 @@ EOF
     systemctl enable save-fakehwclock.timer
     echo $(date "+%Y-%m-%d %H:%M:%S") > /etc/fake-hwclock.data
 
-    rm -rf /root/SourceCode
+    rm -rf /opt/build
     rm /etc/resolv.conf
     chown -R 1000:1000 /gs
 }
