@@ -83,14 +83,18 @@ fi
 truncate -s ${diskNewSize}G $IMAGE
 
 LOOPDEV=$(losetup -P --show -f $IMAGE)
-# ROOT_PART=$(sgdisk -p $LOOPDEV | grep "rootfs" | tail -n 1 | tr -s ' ' | cut -d ' ' -f 2)
-# Base image build by rsdk have no rootfs flag
-ROOT_PART="1"
 ROOT_DEV=${LOOPDEV}p${ROOT_PART}
 
 # move second/backup GPT header to end of disk
 sgdisk -ge $LOOPDEV
 
+if [ "$BOARD" == "radxa_zero_3w" ]; then
+    # Change config partition type GUID from Linux to Windows
+    # 8300(0FC63DAF-8483-4772-8E79-3D69D8477DE4) -> 0700(EBD0A0A2-B9E5-4433-87C0-68B6B72699C7)
+    CONFIG_PART_NUM=1
+    CONFIG_PART_TYPE=$(lsblk -o PARTTYPE ${LOOPDEV}p${CONFIG_PART_NUM})
+    [ "$CONFIG_PART_TYPE" == "EBD0A0A2-B9E5-4433-87C0-68B6B72699C7" ] || sgdisk --typecode=${CONFIG_PART_NUM}:0700 $LOOPDEV
+fi
 
 # # # expand root patition size
 parted -s $LOOPDEV resizepart $ROOT_PART 100%
@@ -102,11 +106,28 @@ resize2fs $ROOT_DEV
 # mount rootfs and config
 [ -d $ROOTFS ] || mkdir $ROOTFS
 mount $ROOT_DEV $ROOTFS
+
+if [ "$BOARD" == "radxa_zero_3w" ]; then
+    mount ${LOOPDEV}p1 $ROOTFS/config
+fi
+
 mount -t proc /proc $ROOTFS/proc
 mount -t sysfs /sys $ROOTFS/sys
 mount -o bind /dev $ROOTFS/dev
 mount -o bind /run $ROOTFS/run
 mount -t devpts devpts $ROOTFS/dev/pts
+
+if [ "$BOARD" == "radxa_zero_3w" ]; then
+    # reformat config partition to fat16 for macos compatible
+    config_partition_UUID=$(grep -oP "(?<=^UUID=).*(?=\s/config)" ${ROOTFS}/etc/fstab | tr -d -)
+    [ -d config_tmp ] || mkdir config_tmp
+    cp -a $ROOTFS/config/* config_tmp/
+    umount $ROOTFS/config
+    mkfs.fat -F 16 -n config -i ${config_partition_UUID} ${LOOPDEV}p1
+    mount ${LOOPDEV}p1 $ROOTFS/config
+    mv config_tmp/* $ROOTFS/config/
+    rmdir config_tmp
+fi
 
 
 # copy gs code to target rootfs
@@ -129,7 +150,7 @@ else
 	CHANNEL="test"
 fi
 
-echo "SBC_MODEL=\"radxa_zero3\"" >> $ROOTFS/etc/gs-release
+echo "SBC_MODEL=\"$$BOARD\"" >> $ROOTFS/etc/gs-release
 echo "BUILD_DATETIME=\"${BUILD_DATETIME}\"" >> $ROOTFS/etc/gs-release
 echo "COMMIT=\"${1}\"" >> $ROOTFS/etc/gs-release
 echo "CHANNEL=\"${CHANNEL}\"" >> $ROOTFS/etc/gs-release
@@ -142,38 +163,38 @@ umount -R $ROOTFS
 rm -r $ROOTFS
 
 # shrink image
-e2fsck -yf $ROOT_DEV
-resize2fs -M $ROOT_DEV
+# e2fsck -yf $ROOT_DEV
+# resize2fs -M $ROOT_DEV
 
-sync
+# sync
 
-# Get the necessary information
-BLOCK_SIZE=$(tune2fs -l $ROOT_DEV | grep '^Block size:' | tr -s ' ' | cut -d ' ' -f 3)
-BLOCKS_COUNT=$(tune2fs -l $ROOT_DEV | grep '^Block count:' | tr -s ' ' | cut -d ' ' -f 3)
-START_SECTOR=$(sgdisk -i $ROOT_PART $LOOPDEV | grep "First sector:" | cut -d ' ' -f 3)
-SECTOR_SIZE=$(blockdev --getss $LOOPDEV)
+# # Get the necessary information
+# BLOCK_SIZE=$(tune2fs -l $ROOT_DEV | grep '^Block size:' | tr -s ' ' | cut -d ' ' -f 3)
+# BLOCKS_COUNT=$(tune2fs -l $ROOT_DEV | grep '^Block count:' | tr -s ' ' | cut -d ' ' -f 3)
+# START_SECTOR=$(sgdisk -i $ROOT_PART $LOOPDEV | grep "First sector:" | cut -d ' ' -f 3)
+# SECTOR_SIZE=$(blockdev --getss $LOOPDEV)
 
-# Calculate the new partition size in sectors
-NEW_PART_SIZE_SECTORS=$(( (BLOCKS_COUNT * BLOCK_SIZE) / SECTOR_SIZE ))
-NEW_LAST_SECTOR=$(( START_SECTOR + NEW_PART_SIZE_SECTORS - 1 ))
+# # Calculate the new partition size in sectors
+# NEW_PART_SIZE_SECTORS=$(( (BLOCKS_COUNT * BLOCK_SIZE) / SECTOR_SIZE ))
+# NEW_LAST_SECTOR=$(( START_SECTOR + NEW_PART_SIZE_SECTORS - 1 ))
 
-# Resize the partition
-sgdisk --move-second-header $LOOPDEV
-sgdisk -e $LOOPDEV
-parted -s $LOOPDEV resizepart $ROOT_PART ${NEW_LAST_SECTOR}s
+# # Resize the partition
+# sgdisk --move-second-header $LOOPDEV
+# sgdisk -e $LOOPDEV
+# parted -s $LOOPDEV resizepart $ROOT_PART ${NEW_LAST_SECTOR}s
 
-# Calculate the final image size
-FINAL_IMG_SIZE_BYTES=$(( (NEW_LAST_SECTOR + 2) * SECTOR_SIZE ))
+# # Calculate the final image size
+# FINAL_IMG_SIZE_BYTES=$(( (NEW_LAST_SECTOR + 2) * SECTOR_SIZE ))
 
 losetup -d $LOOPDEV
-truncate -s $FINAL_IMG_SIZE_BYTES $IMAGE
-sgdisk --move-second-header $IMAGE
-sgdisk -v $IMAGE
+# truncate -s $FINAL_IMG_SIZE_BYTES $IMAGE
+# sgdisk --move-second-header $IMAGE
+# sgdisk -v $IMAGE
 
 echo "Image shrunk."
 
 # compression image and rename xz file
-xz -v -T0 $IMAGE
-mv *.xz Radxa-Zero-3_GroundStation_${BUILD_DATE}_${VERSION}.img.xz
+# xz -v -T0 $IMAGE
+# mv *.xz Radxa-Zero-3_GroundStation_${BUILD_DATE}_${VERSION}.img.xz
 
 exit 0
