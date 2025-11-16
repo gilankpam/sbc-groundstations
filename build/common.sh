@@ -15,7 +15,6 @@ board_upgrade() {
 install_dependencies() {
     apt update
     apt -y install \
-        # Core dependencies
         build-essential \
         bison \
         cmake \
@@ -27,7 +26,6 @@ install_dependencies() {
         libssl-dev \
         pkg-config \
         unzip \
-        # Dependencies for PixelPilot
         fonts-roboto \
         gstreamer1.0-libav \
         gstreamer1.0-plugins-bad \
@@ -54,11 +52,9 @@ install_dependencies() {
         libv4l-rkmpp \
         libyaml-cpp-dev \
         nlohmann-json3-dev \
-        # Dependencies for RubyFPV
         libi2c-dev \
         libpcap-dev \
         wireless-tools \
-        # Useful packages
         bridge-utils \
         chrony \
         console-setup \
@@ -89,7 +85,6 @@ install_dependencies() {
         tcpdump \
         tftpd-hpa \
         tree \
-        # Kernel modules
         firmware-atheros
     pip install --break-system-packages evdev dotenv
 }
