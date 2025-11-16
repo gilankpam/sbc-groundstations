@@ -290,7 +290,7 @@ main() {
     expand_and_mount_image
     build_in_chroot
     generate_release_info
-    shrink_and_compress
+    # shrink_and_compress
 }
 
 main "$@"
