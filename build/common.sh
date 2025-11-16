@@ -209,7 +209,7 @@ install_wfb_ng() {
     cd /opt/build
     wget https://github.com/svpcom/wfb-ng/raw/refs/heads/master/scripts/install_gs.sh
     chmod +x install_gs.sh
-    install_gs.sh wlanx
+    ./install_gs.sh wlanx
 }
 
 install_pixelpilot() {
