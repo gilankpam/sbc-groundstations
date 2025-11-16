@@ -3,7 +3,7 @@
 
 set -e
 
-source /root/common.sh
+source /opt/build/common.sh
 
 board_upgrade
 

@@ -2,7 +2,7 @@
 # script running in target debian arm64 OS
 set -e
 
-source /root/common.sh
+source /opt/build/common.sh
 
 # Remove unnecessary package for xface base image [ need remove more unnecessary package ]
 if dpkg -l | grep -q xface4;
