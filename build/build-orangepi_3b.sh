@@ -2,11 +2,6 @@
 # script running in target debian arm64 OS
 
 set -e
-set -x
-
-export LANGUAGE=POSIX
-export LC_ALL=POSIX
-export LANG=POSIX
 
 source /root/common.sh
 
