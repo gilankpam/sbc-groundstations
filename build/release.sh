@@ -11,7 +11,6 @@ cd $build_dir
 source config
 
 cleanup() {
-    echo "--- Running cleanup ---"
     set +e
     mount | grep "${build_dir}/${ROOTFS}" | awk '{print $3}' | sort -r | xargs -I {} umount {}
     losetupList=$(losetup | grep "${build_dir}" | cut -d ' ' -f 1)
@@ -23,7 +22,6 @@ cleanup() {
     if [ -d "$ROOTFS" ]; then
         rm -r "$ROOTFS"
     fi
-    echo "--- Cleanup finished ---"
 }
 
 trap cleanup EXIT
@@ -145,6 +143,7 @@ cp -r ../gs ../pics $ROOTFS/root/SourceCode/SBC-GS
 
 # run build script
 cp *.sh $ROOTFS/root/
+ls -alh $ROOTFS/root/
 chroot $ROOTFS env BOARD=$BOARD /root/build.sh
 rm $ROOTFS/root/*.sh
 
