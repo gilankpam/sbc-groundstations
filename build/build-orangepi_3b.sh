@@ -5,6 +5,8 @@ set -e
 
 source /opt/build/common.sh
 
+[ -d /config ] || mkdir -p /config
+
 board_upgrade
 
 # Add radxa rk3566 repo
