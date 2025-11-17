@@ -32,7 +32,6 @@ install_rubyfpv
 install_sbc_gs_cc
 install_alink
 install_ttyd
-install_useful_packages
 install_misc_tools
 configure_system
 
