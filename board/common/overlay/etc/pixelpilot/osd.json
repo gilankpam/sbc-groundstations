@@ -1,0 +1,194 @@
+{
+    "format": "0.0.1",
+    "assets_dir": "/usr/share/pixelpilot/",
+    "widgets": [
+        {
+            "type": "TplTextWidget",
+            "name": "RSSI of antenna 1",
+            "template": "rssi: %i | %i | %i | %i",
+            "x": -240,
+            "y": 230,
+            "facts": [
+                {
+                    "name": "wfbcli.rx.ant_stats.rssi_avg",
+                    "tags": {
+                        "ant_id": "0",
+                        "id": "video rx"
+                    }
+                },
+                {
+                    "name": "wfbcli.rx.ant_stats.rssi_avg",
+                    "tags": {
+                        "ant_id": "1",
+                        "id": "video rx"
+                    }
+                },
+                {
+                    "name": "wfbcli.rx.ant_stats.rssi_avg",
+                    "tags": {
+                        "ant_id": "256",
+                        "id": "video rx"
+                    }
+                },
+                {
+                    "name": "wfbcli.rx.ant_stats.rssi_avg",
+                    "tags": {
+                        "ant_id": "257",
+                        "id": "video rx"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Metrics background",
+            "type": "BoxWidget",
+            "x": -270,
+            "y": 100,
+            "width": 270,
+            "height": 100,
+            "color": {
+                "r": 0.0,
+                "g": 0.0,
+                "b": 0.0,
+                "alpha": 0.4
+            },
+            "facts": []
+        },
+        {
+            "name": "all",
+            "type": "BarChartWidget",
+            "x": -240,
+            "y": 250,
+            "width": 200,
+            "height": 35,
+            "window_s": 1,
+            "num_buckets": 10,
+            "stats_kind": "sum",
+            "facts": [
+                {
+                    "name": "wfbcli.rx.packets.all.delta"
+                }
+            ]
+        },
+        {
+            "name": "fec_rec",
+            "type": "BarChartWidget",
+            "x": -240,
+            "y": 290,
+            "width": 200,
+            "height": 35,
+            "window_s": 1,
+            "num_buckets": 10,
+            "stats_kind": "sum",
+            "facts": [
+                {
+                    "name": "wfbcli.rx.packets.fec_rec.delta"
+                }
+            ]
+        },
+        {
+            "name": "lost",
+            "type": "BarChartWidget",
+            "x": -240,
+            "y": 330,
+            "width": 200,
+            "height": 35,
+            "window_s": 1,
+            "num_buckets": 10,
+            "stats_kind": "sum",
+            "facts": [
+                {
+                    "name": "wfbcli.rx.packets.lost.delta"
+                }
+            ]
+        },
+        {
+            "name": "bad",
+            "type": "BarChartWidget",
+            "x": -240,
+            "y": 370,
+            "width": 200,
+            "height": 35,
+            "window_s": 1,
+            "num_buckets": 10,
+            "stats_kind": "sum",
+            "facts": [
+                {
+                    "name": "wfbcli.rx.packets.bad.delta"
+                }
+            ]
+        },
+        {
+            "name": "Video FPS and resolution",
+            "type": "VideoWidget",
+            "x": -270,
+            "y": 126,
+            "icon_path": "framerate.png",
+            "template": "%u fps | %ux%u",
+            "per_second_window_s": 2,
+            "per_second_bucket_ms": 200,
+            "facts": [
+                {
+                    "__comment": "Will be converted to per-second",
+                    "name": "video.displayed_frame"
+                },
+                {
+                    "name": "video.width"
+                },
+                {
+                    "name": "video.height"
+                }
+            ]
+        },
+        {
+            "name": "Video link throughput",
+            "type": "VideoBitrateWidget",
+            "x": -270,
+            "y": 156,
+            "icon_path": "network.png",
+            "template": "%f Mbps",
+            "per_second_window_s": 2,
+            "per_second_bucket_ms": 100,
+            "facts": [
+                {
+                    "__comment": "Should be sum per-second, scaled to Megs",
+                    "name": "gstreamer.received_bytes"
+                }
+            ]
+        },
+        {
+            "name": "DVR status",
+            "type": "DvrStatusWidget",
+            "x": -270,
+            "y": 186,
+            "icon_path": "sdcard-white.png",
+            "text": "Recording",
+            "facts": [
+                {
+                    "name": "dvr.recording"
+                }
+            ]
+        },
+        {
+            "name": "Custom fading message",
+            "type": "PopupWidget",
+            "x": 400,
+            "y": 50,
+            "timeout_ms": 10000,
+            "facts": [
+                {
+                    "name": "osd.custom_message"
+                }
+            ]
+        },
+        {
+            "name": "msposd",
+            "type": "ExternalSurfaceWidget",
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "facts": []
+        }
+    ]
+}
