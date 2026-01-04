@@ -1,0 +1,7 @@
+config BR2_PACKAGE_GO2RTC
+	bool "go2rtc"
+	depends on BR2_PACKAGE_GSTREAMER1
+	help
+	  Ultimate camera streaming application with support RTSP, RTMP, HTTP-FLV, WebRTC, MSE, HLS, MP4, MJPEG, HomeKit, FFmpeg, etc.
+
+	  https://github.com/AlexxIT/go2rtc

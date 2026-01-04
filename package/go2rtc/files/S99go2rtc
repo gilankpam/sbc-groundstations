@@ -1,0 +1,30 @@
+#!/bin/sh
+#
+# Starts go2rtc
+#
+
+case "$1" in
+	start)
+		printf "Starting go2rtc... "
+		start-stop-daemon -S -b -q -m -p /var/run/go2rtc.pid \
+			-x /usr/bin/go2rtc -- -config /etc/go2rtc/go2rtc.yaml
+		[ $? = 0 ] && echo "OK" || echo "FAIL"
+		;;
+
+	stop)
+		echo "Stopping go2rtc... "
+		start-stop-daemon -K -p /var/run/go2rtc.pid
+		[ $? = 0 ] && echo "OK" || echo "FAIL"
+		;;
+
+	restart)
+		$0 stop
+		sleep 1
+		$0 start
+		;;
+
+	*)
+		echo "Usage: $0 {start|stop}"
+		exit 1
+		;;
+esac

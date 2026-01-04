@@ -11,6 +11,8 @@ source "$BR2_EXTERNAL_OPENIPC_SBC_GS_PATH/package/adaptive-link/Config.in"
 source "$BR2_EXTERNAL_OPENIPC_SBC_GS_PATH/package/yaml-cli/Config.in"
 source "$BR2_EXTERNAL_OPENIPC_SBC_GS_PATH/package/msposd/Config.in"
 source "$BR2_EXTERNAL_OPENIPC_SBC_GS_PATH/package/yq/Config.in"
+source "$BR2_EXTERNAL_OPENIPC_SBC_GS_PATH/package/go2rtc/Config.in"
+source "$BR2_EXTERNAL_OPENIPC_SBC_GS_PATH/package/gstreamer-tee/Config.in"
 source "$BR2_EXTERNAL_OPENIPC_SBC_GS_PATH/package/drm_info/Config.in"
 source "$BR2_EXTERNAL_OPENIPC_SBC_GS_PATH/package/dvrui/Config.in"
 
