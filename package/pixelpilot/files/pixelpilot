@@ -6,4 +6,4 @@ PIXELPILOT_DVR_FRAMERATE="60"
 PIXELPILOT_CODEC="h265"
 PIXELPILOT_VIDEO_SCALE=1.0
 
-PIXELPILOT_ARGS="--config $PIXELPILOT_CONFIG_YAML $PIXELPILOT_OSD_ARGS --codec $PIXELPILOT_CODEC --screen-mode $PIXELPILOT_SCREEN_MODE --video-scale $PIXELPILOT_VIDEO_SCALE --dvr-framerate $PIXELPILOT_DVR_FRAMERATE --dvr-fmp4 --dvr-sequenced-files --dvr-template /media/dvr/record_%Y-%m-%d_%H-%M-%S.mp4"
+PIXELPILOT_ARGS="--config $PIXELPILOT_CONFIG_YAML $PIXELPILOT_OSD_ARGS --codec $PIXELPILOT_CODEC --screen-mode $PIXELPILOT_SCREEN_MODE --video-scale $PIXELPILOT_VIDEO_SCALE --dvr-framerate $PIXELPILOT_DVR_FRAMERATE --dvr-fmp4 --dvr-sequenced-files --dvr-template /media/dvr/record_%Y-%m-%d_%H-%M-%S.mp4 -p 5602"

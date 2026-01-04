@@ -30,9 +30,6 @@ define PIXELPILOT_POST_INSTALL_TARGET_HOOK
 	$(INSTALL) -D -m 0644 $(BR2_EXTERNAL_OPENIPC_SBC_GS_PATH)/package/pixelpilot/files/pixelpilot \
 		$(TARGET_DIR)/etc/default/pixelpilot
 
-	$(INSTALL) -D -m 0644 $(BR2_EXTERNAL_OPENIPC_SBC_GS_PATH)/package/pixelpilot/files/osd.json \
-		$(TARGET_DIR)/etc/pixelpilot/osd.json
-
 	$(INSTALL) -D -m 0755 $(PIXELPILOT_PKGDIR)/files/gsmenu.sh \
 		$(TARGET_DIR)/usr/bin/gsmenu.sh
 
