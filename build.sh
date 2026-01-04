@@ -71,7 +71,7 @@ build_project() {
     local build_cmd=""
     
     echo "Using output directory: $OUTPUT_DIR/$DEFCONFIG"
-    build_cmd="make -C $BUILDROOT_DIR O=$OUTPUT_DIR/$DEFCONFIG"
+    build_cmd="make -j$(nproc) -C $BUILDROOT_DIR O=$OUTPUT_DIR/$DEFCONFIG"
     mkdir -p "$OUTPUT_DIR"
     
     # Check if we're in a BR_EXTERNAL directory
