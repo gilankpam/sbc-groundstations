@@ -24,7 +24,7 @@ TX_POWER=""
 case "$ID_USB_DRIVER" in
     "rtl88xxau_wfb")
         if [ "$PHASE" = "post-up" ]; then
-            TX_POWER=-4000
+            TX_POWER=-6300
         elif [ "$PHASE" = "pre-down" ]; then
             TX_POWER=-2000
         fi
