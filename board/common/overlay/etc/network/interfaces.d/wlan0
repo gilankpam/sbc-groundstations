@@ -1,0 +1,6 @@
+iface wlan0 inet static
+    address 10.18.0.1
+    netmask 255.255.255.0
+    post-up udhcpd -S /etc/udhcpd_hotspot.conf
+    pre-down killall -q udhcpd
+wpa-conf /etc/wpa_supplicant.hotspot.conf
