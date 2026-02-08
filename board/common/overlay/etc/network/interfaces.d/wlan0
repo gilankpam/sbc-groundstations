@@ -2,6 +2,6 @@ auto wlan0
 iface wlan0 inet static
     address 10.18.0.1
     netmask 255.255.255.0
-    post-up udhcpd -S /etc/udhcpd_hotspot.conf
-    pre-down killall -q udhcpd
-wpa-conf /etc/wpa_supplicant.hotspot.conf
+    post-up dnsmasq -C /etc/dnsmasq_hotspot.conf -x /var/run/dnsmasq.wlan0.pid
+    pre-down kill -9 $(cat /var/run/dnsmasq.wlan0.pid) ; rm /var/run/dnsmasq.wlan0.pid
+    wpa-conf /etc/wpa_supplicant.hotspot.conf
