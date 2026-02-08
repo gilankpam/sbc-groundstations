@@ -6,7 +6,7 @@
 DAEMON=/usr/bin/gs-server
 PIDFILE=/var/run/openipc-gs-web.pid
 WEB_ROOT=/var/www/openipc-gs-web
-ARGS="-listen :80 -static $WEB_ROOT -airunit http://10.5.0.10:8080"
+ARGS="-listen :80 -static $WEB_ROOT -airunit http://10.5.0.10:8080 -rtp-port 5601"
 
 start() {
 	printf "Starting openipc-gs-web: "
