@@ -1,0 +1,40 @@
+#!/bin/sh
+#
+# Start openipc-gs-web....
+#
+
+DAEMON=/usr/bin/gs-server
+PIDFILE=/var/run/openipc-gs-web.pid
+WEB_ROOT=/var/www/openipc-gs-web
+ARGS="-listen :80 -static $WEB_ROOT"
+
+start() {
+	printf "Starting openipc-gs-web: "
+	start-stop-daemon -S -b -q -m -p "$PIDFILE" \
+		-x "$DAEMON" -- $ARGS
+	[ $? = 0 ] && echo "OK" || echo "FAIL"
+}
+
+stop() {
+	printf "Stopping openipc-gs-web: "
+	start-stop-daemon -K -q -p "$PIDFILE"
+	[ $? = 0 ] && echo "OK" || echo "FAIL"
+}
+
+case "$1" in
+	start)
+		start
+		;;
+	stop)
+		stop
+		;;
+	restart|reload)
+		stop
+		start
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart}"
+		exit 1
+esac
+
+exit $?

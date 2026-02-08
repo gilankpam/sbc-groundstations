@@ -1,0 +1,9 @@
+config BR2_PACKAGE_OPENIPC_GS_WEB
+	bool "openipc-gs-web"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	depends on BR2_PACKAGE_HOST_GO_TARGET_CGO_LINKING_SUPPORTS
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	help
+	  OpenIPC Web Based Ground Station.
+
+	  https://github.com/gilankpam/openipc-gs-web
