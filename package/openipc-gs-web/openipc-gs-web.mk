@@ -21,6 +21,12 @@ OPENIPC_GS_WEB_BUILD_TARGETS = cmd/gs-server
 define OPENIPC_GS_WEB_BUILD_FRONTEND
 	cd $(@D)/web && npm install && npm run build
 endef
+
+
+define OPENIPC_GS_WEB_INSTALL_TARGET_CMDS
+	$(INSTALL) -D -m 0755 $(@D)/bin/gs-server $(TARGET_DIR)/usr/bin/gs-server
+endef
+
 OPENIPC_GS_WEB_PRE_BUILD_HOOKS += OPENIPC_GS_WEB_BUILD_FRONTEND
 
 define OPENIPC_GS_WEB_INSTALL_INIT_SYSV

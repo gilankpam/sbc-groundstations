@@ -38,6 +38,8 @@ jobs:
           echo "CACHE_DATE=$(date +%m)" >> $GITHUB_ENV
           sudo apt update
           sudo apt install -y cpio rsync bc qemu-user-static binfmt-support
+          curl -fsSL https://deb.nodesource.com/setup_24.x | sudo bash -
+          sudo apt install -y nodejs
           sudo mkdir -p /mnt/workspace
           sudo chown $USER:$USER /mnt/workspace
           rsync -a "$GITHUB_WORKSPACE/" /mnt/workspace/
