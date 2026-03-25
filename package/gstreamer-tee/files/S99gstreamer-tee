@@ -1,0 +1,30 @@
+#!/bin/sh
+#
+# Starts gstreamer-tee.
+#
+
+case "$1" in
+	start)
+		printf "Starting gstreamer-tee... "
+		start-stop-daemon -S -b -q -m -p /var/run/gstreamer-tee.pid \
+			-x /usr/bin/gst-launch-1.0 -- -q udpsrc port=5600 ! tee name=t ! queue ! udpsink host=127.0.0.1 port=5602 t. ! queue ! udpsink host=127.0.0.1 port=5601
+		[ $? = 0 ] && echo "OK" || echo "FAIL"
+		;;
+
+	stop)
+		echo "Stopping gstreamer-tee... "
+		start-stop-daemon -K -p /var/run/gstreamer-tee.pid
+		[ $? = 0 ] && echo "OK" || echo "FAIL"
+		;;
+
+	restart)
+		$0 stop
+		sleep 1
+		$0 start
+		;;
+
+	*)
+		echo "Usage: $0 {start|stop}"
+		exit 1
+		;;
+esac

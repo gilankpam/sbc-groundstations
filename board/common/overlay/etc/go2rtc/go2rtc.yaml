@@ -1,0 +1,6 @@
+log:
+  level: debug
+
+streams:
+  wfb:
+    - "exec:gst-launch-1.0 -q udpsrc port=5601 caps=\"application/x-rtp, media=(string)video, encoding-name=(string)H265, clock-rate=(int)90000\" ! rtph265depay ! h265parse config-interval=-1 ! video/x-h265, stream-format=byte-stream ! filesink location=/dev/stdout"

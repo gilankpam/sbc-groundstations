@@ -1,0 +1,5 @@
+config BR2_PACKAGE_GSTREAMER_TEE
+	bool "gstreamer-tee"
+	depends on BR2_PACKAGE_GSTREAMER1
+	help
+	  A gstreamer pipeline that tees a udp stream to two different ports.
