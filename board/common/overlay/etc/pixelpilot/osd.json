@@ -5,21 +5,28 @@
         {
             "type": "TplTextWidget",
             "name": "RSSI of antenna 1",
-            "template": "rssi: %i | %i | %i | %i",
-            "x": -240,
+            "template": "rssi: %i | %i | %i | %i | %i | %i",
+            "x": -360,
             "y": 230,
             "facts": [
                 {
                     "name": "wfbcli.rx.ant_stats.rssi_avg",
                     "tags": {
-                        "ant_id": "0",
+                        "ant_id": "513",
                         "id": "video rx"
                     }
                 },
                 {
                     "name": "wfbcli.rx.ant_stats.rssi_avg",
                     "tags": {
-                        "ant_id": "1",
+                        "ant_id": "512",
+                        "id": "video rx"
+                    }
+                },
+                {
+                    "name": "wfbcli.rx.ant_stats.rssi_avg",
+                    "tags": {
+                        "ant_id": "257",
                         "id": "video rx"
                     }
                 },
@@ -33,7 +40,14 @@
                 {
                     "name": "wfbcli.rx.ant_stats.rssi_avg",
                     "tags": {
-                        "ant_id": "257",
+                        "ant_id": "1",
+                        "id": "video rx"
+                    }
+                },
+                {
+                    "name": "wfbcli.rx.ant_stats.rssi_avg",
+                    "tags": {
+                        "ant_id": "0",
                         "id": "video rx"
                     }
                 }
@@ -42,9 +56,9 @@
         {
             "name": "Metrics background",
             "type": "BoxWidget",
-            "x": -270,
+            "x": -400,
             "y": 100,
-            "width": 270,
+            "width": 400,
             "height": 100,
             "color": {
                 "r": 0.0,
