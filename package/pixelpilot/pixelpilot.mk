@@ -4,13 +4,13 @@
 #
 ###############################################################################
 
-PIXELPILOT_VERSION=f8f6121853fcc40de7cf24ba6ffde65a6d0da616
+PIXELPILOT_VERSION=bb78db69b623f2a870e2e22b23ba0bfeb1578225
 PIXELPILOT_SITE=https://github.com/gilankpam/PixelPilot_rk.git
 PIXELPILOT_SITE_METHOD = git
 PIXELPILOT_GIT_SUBMODULES = YES
 PIXELPILOT_INSTALL_STAGING = NO
 PIXELPILOT_INSTALL_TARGET = YES
-PIXELPILOT_DEPENDENCIES = rockchip-mpp librga mali-driver-custom mesa3d libdrm cairo spdlog json-for-modern-cpp yaml-cpp libgpiod gstreamer1 gst1-plugins-base msgpack
+PIXELPILOT_DEPENDENCIES = rockchip-mpp librga mali-driver-custom mesa3d libdrm cairo spdlog json-for-modern-cpp yaml-cpp libgpiod gstreamer1 gst1-plugins-base gst1-plugins-good msgpack
 
 PIXELPILOT_CMAKE_OPTS += -DCMAKE_PREFIX_PATH=$(STAGING_DIR)/usr
 

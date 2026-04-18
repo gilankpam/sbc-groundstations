@@ -106,6 +106,21 @@ cd sbc-groundstations
 
 Refer to Buildroot's documentation for instructions on customizing your build: [Buildroot](https://buildroot.org/downloads/manual/manual.html)
 
+# Custom Build (Nix)
+
+If you have [Nix](https://nixos.org/download) installed, you can skip the
+apt/Docker setup entirely:
+
+```
+nix-shell --run './build.sh'
+```
+
+Pass a specific board with `DEFCONFIG`:
+
+```
+nix-shell --run 'DEFCONFIG=radxa_zero3_defconfig ./build.sh'
+```
+
 # Dual Boot (Older RadxaOS based images)
 
 There is a DTB naming mismatch in u-boot versions between the sbc-gs and older RadxaOS based images e.g. Ruby.
