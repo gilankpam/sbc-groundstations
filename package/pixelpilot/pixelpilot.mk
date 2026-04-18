@@ -4,7 +4,7 @@
 #
 ###############################################################################
 
-PIXELPILOT_VERSION=bb78db69b623f2a870e2e22b23ba0bfeb1578225
+PIXELPILOT_VERSION=cc0f198d50caf1950580f9419be2fa27653c3f80
 PIXELPILOT_SITE=https://github.com/gilankpam/PixelPilot_rk.git
 PIXELPILOT_SITE_METHOD = git
 PIXELPILOT_GIT_SUBMODULES = YES
