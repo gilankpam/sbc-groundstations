@@ -1,0 +1,12 @@
+config BR2_PACKAGE_FPVD
+	bool "fpvd"
+	depends on BR2_PACKAGE_PYTHON3
+	depends on BR2_PACKAGE_WFB_SERVER
+	depends on BR2_PACKAGE_WIFIBROADCAST_NG
+	help
+	  fpvd ground-station supervisor (Python). Owns the wfb data plane
+	  in-process via the wfb_ng library, spawns and supervises the
+	  pixelpilot display process, and serves the GS HTTP API on :8080.
+
+	  Enabling fpvd retires wifibroadcast-ng's stock S98wifibroadcast
+	  launcher; fpvd brings up wfb_rx/wfb_tx itself.
