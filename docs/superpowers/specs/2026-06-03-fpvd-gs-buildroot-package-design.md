@@ -35,9 +35,10 @@ the `drone/` C++ side of the fpvd repo.
   keys, and `S98wifibroadcast` all come from **`wifibroadcast-ng`**
   (generic-package). `S98wifibroadcast` is the only competing init in this image.
 - `radxa_zero3_defconfig` already has `BR2_PACKAGE_PYTHON3=y`,
-  `WIFIBROADCAST_NG=y`, `WFB_SERVER=y`, `PIXELPILOT=y`, and
-  `BR2_PACKAGE_ADAPTIVE_LINK=n` — so adaptive-link is **not** present and needs
-  no handling; pixelpilot init is already suppressed.
+  `WIFIBROADCAST_NG=y`, `WFB_SERVER=y`, `PIXELPILOT=y`. `ADAPTIVE_LINK` is `=y`
+  at HEAD but flipped `=n` in the operator's working-tree config, so it is out of
+  scope here (revisit if a clean-HEAD build ever ships adaptive-link alongside
+  fpvd's dynlink).
 - fpvd's `gs/` has **no `setup.py`** (pyproject-only) → Buildroot setup type must
   be `pep517`, not `setuptools`.
 - pyproject defines console scripts `fpvd = fpvdgs.supervisor:main` and
@@ -75,9 +76,10 @@ post-edit commit.)
 - `FPVD_SUBDIR = gs` (build from the `gs/` subtree)
 - `FPVD_SETUP_TYPE = pep517`
 - `FPVD_LICENSE` per the fpvd repo
-- `FPVD_DEPENDENCIES = wfb-server wifibroadcast-ng` — supplies the `wfb_ng`
-  module + wfb binaries/keys, and (critically) forces fpvd to install **after**
-  `wifibroadcast-ng`, which the S98 removal relies on.
+- `FPVD_DEPENDENCIES = pixelpilot wfb-server wifibroadcast-ng` — supplies the
+  `wfb_ng` module, wfb binaries/keys, and the pixelpilot binary fpvd spawns, and
+  (critically) forces fpvd to install **after** them, which the launcher
+  retirement below relies on.
 - `$(eval $(python-package))`
 
 Install steps beyond the wheel (sourced from the **fetched tree**, single source
@@ -89,10 +91,14 @@ of truth that always matches the pin — same approach used for the Geist font):
   - `mkdir -p $(TARGET_DIR)/etc/fpvd`
   - install `$(@D)/gs/etc/defaults.json` → `/etc/fpvd/defaults.json`
   - install `$(@D)/deploy/gs/config.json` → `/etc/fpvd/config.json`
-  - **handoff:** `rm -f $(TARGET_DIR)/etc/init.d/S98wifibroadcast` so only
-    `S99fpvd` brings up the wfb data plane. Keep the wifibroadcast-ng binaries,
-    keys, and `/etc/wifibroadcast.cfg` (fpvd regenerates the cfg at runtime via
-    its `--cfg-out`).
+  - **handoff (symmetric):** `rm -f` both stock launchers so only `S99fpvd`
+    runs the show — `/etc/init.d/S98wifibroadcast` and the pixelpilot launch
+    chain (`/etc/init.d/S99pixelpilot`, `/usr/bin/pixelpilot.sh`,
+    `/etc/default/pixelpilot`). Keep the wifibroadcast-ng binaries/keys/cfg
+    (fpvd regenerates the cfg via `--cfg-out`) and the pixelpilot binary +
+    fonts. `pixelpilot.mk` still installs its launch chain (standalone-bootable
+    when fpvd is off); `gsmenu.sh` stays unshipped there for an unrelated reason
+    (superseded by the in-binary gsmenu UI).
 
 No manual profile copy is needed — change #1 makes setuptools bundle them.
 
@@ -118,22 +124,30 @@ config BR2_PACKAGE_FPVD
 - Add `source ".../package/fpvd/Config.in"` to the root `Config.in`.
 - Enable `BR2_PACKAGE_FPVD=y` in `configs/radxa_zero3_defconfig`.
 
-## Why the chosen handoff (Fork #2 = A)
+## Why the chosen handoff (Fork #2 = A, applied symmetrically)
 
-fpvd removing `S98wifibroadcast` in its own post-install keeps the entire "fpvd
+fpvd retiring the stock launchers in its own post-install keeps the entire "fpvd
 is the GS supervisor" decision in one package, avoids a layering inversion
-(`wifibroadcast-ng` stays fpvd-agnostic and standalone-usable), auto-reverts when
-`BR2_PACKAGE_FPVD=n`, and matches `deploy.sh`. Build order is guaranteed because
-fpvd depends on `wifibroadcast-ng`. Rejected: runtime-kill (racy at boot — S98
-starts wfb before S99fpvd) and board `post-build.sh` (buries the handoff away
-from the package).
+(`wifibroadcast-ng` and `pixelpilot` stay fpvd-agnostic and standalone-usable),
+auto-reverts when `BR2_PACKAGE_FPVD=n`, and matches `deploy.sh`. Build order is
+guaranteed because fpvd depends on both. Rejected: runtime-kill (racy at boot —
+the stock init starts before `S99fpvd`) and board `post-build.sh` (buries the
+handoff away from the package).
+
+This is applied symmetrically to **both** services fpvd takes over (wfb and
+pixelpilot). Doing only one would leave an `fpvd=n` image half-broken — e.g.
+removing the pixelpilot launcher unconditionally in `pixelpilot.mk` while gating
+the wfb removal on fpvd means disabling fpvd brings wfb back but leaves pixelpilot
+with no starter. Both launchers therefore live in their own packages and are
+retired by fpvd together.
 
 ## Boot model (resulting image)
 
 `S99fpvd` → `start-stop-daemon … /usr/bin/fpvd --defaults /etc/fpvd/defaults.json
 --config /etc/fpvd/config.json --cfg-out /etc/wifibroadcast.cfg --port 8080`.
 fpvd renders `/etc/wifibroadcast.cfg`, brings up wfb_rx/wfb_tx via `wfb_ng`, and
-spawns/supervises pixelpilot. No `S98wifibroadcast`, no pixelpilot init.
+spawns/supervises pixelpilot. No `S98wifibroadcast`, no pixelpilot launch chain
+(`S99pixelpilot`/`pixelpilot.sh`/`/etc/default/pixelpilot`).
 
 ## Verification
 

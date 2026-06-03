@@ -13,10 +13,12 @@ FPVD_SUBDIR = gs
 FPVD_SETUP_TYPE = pep517
 
 # wfb-server provides the wfb_ng Python module fpvd imports; wifibroadcast-ng
-# provides the wfb_rx/wfb_tx binaries + keys fpvd drives. Depending on them also
-# forces fpvd to install AFTER wifibroadcast-ng, which the S98 removal relies on.
+# provides the wfb_rx/wfb_tx binaries + keys fpvd drives; pixelpilot provides the
+# binary fpvd spawns. Depending on them also forces fpvd to install AFTER them,
+# which the launcher-retirement step below relies on.
 # host-python-setuptools/wheel supply the pep517 build backend (--no-isolation).
 FPVD_DEPENDENCIES = \
+	pixelpilot \
 	wfb-server \
 	wifibroadcast-ng \
 	host-python-setuptools \
@@ -37,11 +39,15 @@ define FPVD_POST_INSTALL_TARGET_HOOK
 		$(TARGET_DIR)/etc/fpvd/config.json
 
 	# Full GS-supervisor handoff: fpvd runs the wfb data plane in-process
-	# (wfb_ng), so retire wifibroadcast-ng's stock launcher. The wfb binaries,
-	# keys, and /etc/wifibroadcast.cfg from wifibroadcast-ng stay -- fpvd
-	# regenerates the cfg at runtime via its --cfg-out. Reverts automatically
-	# when BR2_PACKAGE_FPVD is disabled.
+	# (wfb_ng) and supervises pixelpilot directly, so retire the stock
+	# auto-start scaffolding of both. Kept: the wfb binaries/keys/cfg
+	# (fpvd regenerates the cfg via --cfg-out) and the pixelpilot binary +
+	# fonts. Removed: only the launchers. Reverts automatically when
+	# BR2_PACKAGE_FPVD is disabled (each package still ships its own launcher).
 	rm -f $(TARGET_DIR)/etc/init.d/S98wifibroadcast
+	rm -f $(TARGET_DIR)/etc/init.d/S99pixelpilot \
+	      $(TARGET_DIR)/usr/bin/pixelpilot.sh \
+	      $(TARGET_DIR)/etc/default/pixelpilot
 endef
 
 FPVD_POST_INSTALL_TARGET_HOOKS += FPVD_POST_INSTALL_TARGET_HOOK
