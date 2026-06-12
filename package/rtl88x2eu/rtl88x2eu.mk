@@ -8,7 +8,7 @@ RTL88X2EU_SITE_METHOD = git
 RTL88X2EU_LICENSE = unspecified
 RTL88X2EU_MODULE_MAKE_OPTS = \
 	CONFIG_RTL8822EU=m \
-	USER_EXTRA_CFLAGS="-Wno-stringop-overread -Wno-error -Wno-misleading-indentation"
+	USER_EXTRA_CFLAGS="-Wno-stringop-overread -Wno-error -Wno-misleading-indentation -DCONFIG_BEAMFORMING_MONITOR"
 
 $(eval $(kernel-module))
 

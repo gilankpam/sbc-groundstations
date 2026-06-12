@@ -6,7 +6,7 @@
 
 # feat/pixelpilot-managed-service HEAD (after the dynlink package-data fix).
 # Bump this hash to advance the branch.
-FPVD_VERSION = 94d06c160bff73a133ad5824415bffb242c18e3a
+FPVD_VERSION = 4218c8a989b69f85b9b124f6877be9da5722df47
 FPVD_SITE = https://github.com/gilankpam/fpvd.git
 FPVD_SITE_METHOD = git
 FPVD_SUBDIR = gs
@@ -34,9 +34,6 @@ define FPVD_POST_INSTALL_TARGET_HOOK
 
 	$(INSTALL) -D -m 0644 $(@D)/gs/etc/defaults.json \
 		$(TARGET_DIR)/etc/fpvd/defaults.json
-
-	$(INSTALL) -D -m 0644 $(@D)/deploy/gs/config.json \
-		$(TARGET_DIR)/etc/fpvd/config.json
 
 	# Full GS-supervisor handoff: fpvd runs the wfb data plane in-process
 	# (wfb_ng) and supervises pixelpilot directly, so retire the stock

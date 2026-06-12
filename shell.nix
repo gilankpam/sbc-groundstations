@@ -42,6 +42,12 @@ in
     zstd
     zlib
 
+    # libstdc++.so.6 / libgcc_s.so.1 for buildroot's host-built C++ binaries
+    # (host-ccache 4.x, etc). `gcc` above only provides the driver, not the
+    # runtime C++ lib, so without this they fail with:
+    #   ccache: error while loading shared libraries: libstdc++.so.6
+    stdenv.cc.cc.lib
+
     # crypt.h for buildroot's host-mkpasswd
     libxcrypt
 
@@ -61,6 +67,11 @@ in
     # CMake 4.0 dropped compat with projects declaring cmake_minimum_required
     # below 3.5. Several Buildroot packages (msgpack, pixelpilot, ...) still do.
     export CMAKE_POLICY_VERSION_MINIMUM=3.5
+    # Do NOT export LD_LIBRARY_PATH=/usr/lib here: libtool resolves -l flags
+    # against LD_LIBRARY_PATH dirs, so cross links pick the x86_64 FHS libs
+    # (e.g. liblzma.so) over the sysroot ones and fail with "file in wrong
+    # format". Host binaries built by a prior non-FHS run (nix-store ELF
+    # interpreter) may need it; rebuild those clean inside this env instead.
   '';
 
   runScript = "bash";
