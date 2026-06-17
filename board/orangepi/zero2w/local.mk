@@ -7,4 +7,4 @@
 #
 # (The common board/common/local.mk only carries CI=true cleanup hooks, which
 # are irrelevant to a local build, so it is intentionally not included here.)
-FFMPEG_OVERRIDE_SRCDIR = /home/gilankpam/h618-kernel-work/ffmpeg-v4l2request-n7.1
+FFMPEG_OVERRIDE_SRCDIR = $(BR2_EXTERNAL_OPENIPC_SBC_GS_PATH)/.opi-artifacts/ffmpeg-v4l2request-n7.1
