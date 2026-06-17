@@ -38,12 +38,14 @@ Reference inputs already gathered (do not re-derive):
 
 ### Task 1: Sunxi platform scaffold — minimal bootable image
 
-Stand up the new platform end-to-end with a **stock `sunxi_defconfig` kernel**, isolating "the board boots" (u-boot + ATF + image layout + boot script + build wiring) from "our kernel recipe" (Task 2+).
+Stand up the new platform end-to-end using the **live board's captured kernel config** (guaranteed to drive this exact hardware and to mount the squashfs root), so the first image boots to a login prompt. This folds in the old Task 2: arm64 has no `sunxi_defconfig`, so there is no useful "stock kernel" intermediate, and the captured config is the known-good baseline.
 
 **Files:**
 - Create: `configs/orangepi_zero2w_defconfig`
+- Create: `board/orangepi/zero2w/linux.config` (captured from the live board via SSH)
 - Create: `board/orangepi/zero2w/genimage.cfg`
 - Create: `board/orangepi/zero2w/boot.cmd`
+- Create: `board/orangepi/zero2w/uboot.fragment`
 - Create: `board/orangepi/zero2w/overlay/.empty` (placeholder so the overlay dir exists)
 - Modify: `external.mk` (guard the Rockchip flash include)
 - Modify: `build.sh` (board-aware u-boot artifact name)
@@ -126,7 +128,7 @@ esac
 
 - [ ] **Step 4: Write `configs/orangepi_zero2w_defconfig`**
 
-Start from `radxa_zero3_defconfig` and apply the platform changes. The kernel uses stock `sunxi_defconfig` for this task only.
+Start from `radxa_zero3_defconfig` and apply the platform changes. The kernel uses the live board's captured config (`board/orangepi/zero2w/linux.config`), captured first via `ssh -o BatchMode=yes root@192.168.10.91 'zcat /proc/config.gz' > board/orangepi/zero2w/linux.config`. (arm64 has no `sunxi_defconfig`, and a stock arm64 `defconfig` lacks `SQUASHFS=y` for the squashfs root — so the known-good captured config is the baseline, folding in the old Task 2.)
 
 ```
 BR2_aarch64=y
@@ -149,8 +151,8 @@ BR2_ROOTFS_POST_SCRIPT_ARGS="-c ${BR2_EXTERNAL}/board/orangepi/zero2w/genimage.c
 BR2_LINUX_KERNEL=y
 BR2_LINUX_KERNEL_CUSTOM_VERSION=y
 BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE="6.18.35"
-BR2_LINUX_KERNEL_USE_DEFCONFIG=y
-BR2_LINUX_KERNEL_DEFCONFIG="sunxi"
+BR2_LINUX_KERNEL_USE_CUSTOM_CONFIG=y
+BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="${BR2_EXTERNAL_OPENIPC_SBC_GS_PATH}/board/orangepi/zero2w/linux.config"
 BR2_LINUX_KERNEL_DTS_SUPPORT=y
 BR2_LINUX_KERNEL_INTREE_DTS_NAME="allwinner/sun50i-h618-orangepi-zero2w"
 BR2_LINUX_KERNEL_DTB_KEEP_DIRNAME=y
@@ -284,70 +286,16 @@ Expected: shell. (If gadget mode needs board-specific UDC/dr_mode, note it for T
 
 ```bash
 git add configs/orangepi_zero2w_defconfig board/orangepi/zero2w external.mk build.sh board/common/gen-boot-scr.sh
-git commit -m "feat(orangepi-zero2w): sunxi platform scaffold, boots stock sunxi_defconfig"
+git commit -m "feat(orangepi-zero2w): sunxi platform scaffold + live-board kernel config"
 ```
 
 ---
 
-### Task 2: Switch to the live-board kernel config (known-good baseline)
+### Task 2: (folded into Task 1)
 
-Replace stock `sunxi_defconfig` with the operator's validated config captured from the running board, so subsequent video/WiFi work sits on a config proven to drive this exact hardware. (Size trimming is deferred to Task 7 — correctness first.)
+**Merged during execution.** This task originally switched the kernel from a stock `sunxi_defconfig` to the live-board captured config. But arm64 has no `sunxi_defconfig`, and a stock arm64 `defconfig` lacks `SQUASHFS=y` for the squashfs root — so there is no useful stock-kernel intermediate. Task 1 now captures and uses `board/orangepi/zero2w/linux.config` directly (committed as `fix(orangepi-zero2w): use live-board kernel config baseline (fold Task 2)`).
 
-**Files:**
-- Create: `board/orangepi/zero2w/linux.config`
-- Modify: `configs/orangepi_zero2w_defconfig` (point kernel at the custom config)
-
-**Interfaces:**
-- Consumes: the bootable platform from Task 1.
-- Produces: `BR2_LINUX_KERNEL_USE_CUSTOM_CONFIG` → `board/orangepi/zero2w/linux.config`. Tasks 3–4 add a `linux.fragment` layered on top; Task 7 trims this file.
-
-- [ ] **Step 1: Capture the running config from the reference board**
-
-```bash
-ssh root@192.168.10.91 'zcat /proc/config.gz' > board/orangepi/zero2w/linux.config
-wc -l board/orangepi/zero2w/linux.config   # ~9600 lines
-```
-
-- [ ] **Step 2: Point the defconfig at the custom config**
-
-In `configs/orangepi_zero2w_defconfig`, replace:
-
-```
-BR2_LINUX_KERNEL_USE_DEFCONFIG=y
-BR2_LINUX_KERNEL_DEFCONFIG="sunxi"
-```
-
-with:
-
-```
-BR2_LINUX_KERNEL_USE_CUSTOM_CONFIG=y
-BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="${BR2_EXTERNAL_OPENIPC_SBC_GS_PATH}/board/orangepi/zero2w/linux.config"
-```
-
-- [ ] **Step 3: Build**
-
-Run: `DEFCONFIG=orangepi_zero2w_defconfig ./build.sh linux-rebuild 2>&1 | tail -20` then `DEFCONFIG=orangepi_zero2w_defconfig ./build.sh`
-Expected: kernel builds against 6.18.35. Buildroot runs `olddefconfig`; if any Armbian-only symbols are dropped that is expected (they belong to out-of-tree drivers added later). Build completes; image produced.
-Expected FAIL to fix: build errors from config symbols referencing not-yet-present out-of-tree drivers — none should remain after `olddefconfig` since those symbols simply won't exist; if a symbol forces a missing in-tree driver, leave it (`olddefconfig` clears unmet deps).
-
-- [ ] **Step 4: Reflash and verify boot + core peripherals**
-
-Flash (Task 1 Step 11), boot, and on the board check:
-```bash
-uname -r                 # 6.18.35
-cat /proc/cmdline        # cma=256M present
-ls /sys/class/drm        # card0 + HDMI connector
-dmesg | grep -iE 'cedrus|sun4i-drm|sun8i'   # drivers probed
-```
-Expected before (Task 1 stock config): may differ.
-Expected after: boots, `uname -r` = `6.18.35`, DRM card present, sun4i/cedrus drivers probe.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add board/orangepi/zero2w/linux.config configs/orangepi_zero2w_defconfig
-git commit -m "feat(orangepi-zero2w): use validated live-board kernel config baseline"
-```
+The on-hardware "boots + core peripherals" check that lived here is performed at the **Task 1 first-boot milestone** (see Task 1 Steps 10–12): `uname -r` = `6.18.35`, `cma=256M` in `/proc/cmdline`, `ls /sys/class/drm` shows a card, and `dmesg | grep -iE 'cedrus|sun4i-drm|sun8i'` shows the drivers probing. No separate work remains.
 
 ---
 
