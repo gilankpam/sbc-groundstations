@@ -32,21 +32,24 @@ A small, radxa-sized Buildroot squashfs image (`orangepi_zero2w_sdcard.img`) tha
 - provides the **kernel video path** (Cedrus + DE33 NV12 overlay, via patches
   `0099`/`0100`) and an **ffmpeg built with `--enable-v4l2-request`** that the
   operator's player links against,
-- is supervised by `fpvd` with a board-selectable player hook.
+- brings up the wfb link via the **stock `wifibroadcast-ng` init** (no `fpvd` in
+  v1), which forwards video to **UDP:5600** for the operator's player.
 
 ## Scope
 
 **In scope:** new sunxi platform (defconfig + `board/orangepi/zero2w/`), native
 mainline 6.18 kernel build with the video + UWE5622 patches, trimmed kernel
 config, sunxi u-boot + ATF, sunxi image/boot assembly, `ffmpeg`
-with v4l2-request, board-aware build wiring, fpvd player-dependency made
-board-conditional.
+with v4l2-request, board-aware build wiring, the stock `wifibroadcast-ng` wfb link
+(USB RTL adapter → video on UDP:5600).
 
 **Out of scope (operator is building / later specs):** the H618 live-stream
-player binary and its RTP:5600 ingest; OSD (msposd); DVR; adaptive-link; web UI
-(openipc-gs-web / go2rtc); onboard **Bluetooth** (`sprdbt_tty`). The image exposes
-the integration contract (working kernel video path + ffmpeg + fpvd player hook)
-so the player drops in without further board changes.
+player binary and its RTP:5600 ingest; the **`fpvd` GS supervisor** (this board
+uses the stock `wifibroadcast-ng` orchestration in v1); OSD (msposd); DVR;
+adaptive-link; web UI (openipc-gs-web / go2rtc); onboard **Bluetooth**
+(`sprdbt_tty`). The image exposes the integration contract (working kernel video
+path + ffmpeg + video on UDP:5600) so the player drops in without further board
+changes.
 
 ## Key decisions (from brainstorming)
 
@@ -82,10 +85,11 @@ so the player drops in without further board changes.
     `/lib/firmware/wcnmodem.bin` symlink.
   - DTB in use: `allwinner/sun50i-h618-orangepi-zero2w.dtb`. Boot is Armbian
     extlinux/boot.scr; bootargs include `cma=256M`.
-- **Video ingest contract** (from `fpvd` `config.json`): the player receives
-  **RTP/H.265 on UDP:5600** (`rtpPort:5600`, `codec:h265`), with IDR-request
-  forwarding on `11223`. fpvd already abstracts the player via a `bin` path — the
-  clean swap point for the operator's player.
+- **Video ingest contract:** the player receives **RTP/H.265 on UDP:5600**
+  (the same `rtpPort:5600`/`codec:h265` the Rockchip stack uses). In v1 the stock
+  `wifibroadcast-ng` `S98wifibroadcast` init configures `wfb_rx` to forward the
+  video to `127.0.0.1:5600` (the pre-fpvd OpenIPC path); the operator's player
+  reads that port.
 - **Image/boot is Rockchip-shaped:** `board/common/genimage.cfg` writes
   `u-boot-rockchip.bin` at 32K on GPT; `board/common/boot.cmd` is the Rockchip
   eMMC-flasher. sunxi needs MBR + `u-boot-sunxi-with-spl.bin` at 8K + a normal-boot
@@ -95,8 +99,10 @@ so the player drops in without further board changes.
 - **Buildroot `ffmpeg` exists** but its `Config.in` exposes no v4l2-request toggle
   → enabling it needs a package override/patch. ffmpeg is not currently used by
   any package in the tree (pixelpilot uses gstreamer), so adding it is isolated.
-- **`fpvd` hard-lists `pixelpilot`** in `FPVD_DEPENDENCIES` and ships a
-  pixelpilot-shaped `config.json` → must be made board-conditional.
+- **`fpvd` is not installed on this board in v1** (operator's call), so its
+  hard-coded `pixelpilot` dependency is moot — we simply leave `BR2_PACKAGE_FPVD`
+  off and do not touch `fpvd.mk`. The wfb link is brought up by
+  `wifibroadcast-ng`'s stock `S98wifibroadcast` init instead.
 
 ## Changes
 
@@ -132,8 +138,9 @@ Derived from `radxa_zero3_defconfig`, with these platform changes:
 - **Packages — drop (Rockchip-only / unneeded for direct-to-plane):**
   `pixelpilot`, `rockchip-mpp`, `librga`, `mali-driver-custom`, `rockchip-rkbin`,
   `rkdeveloptool`, and candidate-for-drop `gstreamer1`/`mesa3d`/`panfrost`
-  (revisit if the operator's player needs them). Keep wfb/fpvd/RTL-driver stack,
-  squashfs, dnsmasq/wpa_supplicant (hotspot), python, samba, etc.
+  (revisit if the operator's player needs them). Also **`fpvd` off in v1**
+  (`BR2_PACKAGE_FPVD` unset). Keep the wfb link stack (`wifibroadcast-ng`,
+  `wfb-server`) + RTL drivers, squashfs, dnsmasq/wpa_supplicant (hotspot), python.
 - GPIO factory-reset / gadget pins: set to OPi Zero 2W header pins (TBD from board).
 
 ### 3. Onboard WiFi — UWE5622 (W1, in-tree)
@@ -180,20 +187,19 @@ Derived from `radxa_zero3_defconfig`, with these platform changes:
 - **`gen-boot-scr.sh`:** prefer a board-specific `boot.cmd`
   (`board/<vendor>/<board>/boot.cmd`) when present, else `board/common/boot.cmd`.
 
-### 6. fpvd integration
+### 6. wfb link (no fpvd in v1)
 
-- Make `FPVD_DEPENDENCIES`' `pixelpilot` board-conditional so the OPi defconfig
-  does not pull pixelpilot. The OPi board overlay ships a `config.json` whose
-  player `bin` points at the operator's player path (same `rtpPort`/`codec`/
-  `screenMode` keys), and a `drmplay`-style launcher contract (free console /
-  unbind fbcon / claim `/dev/video0`). Until the player binary exists, fpvd's
-  player hook is a no-op placeholder; everything else (wfb link, WiFi, HTTP API)
-  runs.
+- Do **not** enable `fpvd` on this board for v1; do not modify `fpvd.mk`. Enable
+  the stock wfb link stack (`wifibroadcast-ng` + `wfb-server`) + USB RTL drivers.
+  `wifibroadcast-ng`'s `S98wifibroadcast` brings up the link and forwards video to
+  `127.0.0.1:5600`. The operator's player consumes that port and handles display;
+  its launcher (free console / unbind fbcon / claim `/dev/video0`) ships with the
+  player, not this board. Porting `fpvd` to sunxi is a follow-up spec.
 
 ## Data flow (v1 substrate)
 
 ```
-USB RTL adapter ──(wfb-ng)──> fpvd (wfb data plane) ──RTP/H.265 :5600──> [operator's player]
+USB RTL adapter ──(wfb-ng)──> wifibroadcast-ng S98 (wfb_rx) ──RTP/H.265 127.0.0.1:5600──> [operator's player]
                                                                             │  (links ffmpeg
                                                                             │   v4l2-request)
                                             Cedrus HW decode ──DRM-PRIME NV12──> DE33 overlay plane (HDMI)
@@ -223,10 +229,12 @@ trusting the full image:
    uwe5622, Cedrus decode (`v4l2-ctl`/ffmpeg), DE33 NV12 plane (`modetest -p`).
 2. Build ffmpeg with v4l2-request; confirm HW decode through it.
 3. Full Buildroot build of `orangepi_zero2w_defconfig`; flash
-   `orangepi_zero2w_sdcard.img` to microSD; confirm boot + WiFi + wfb link, and
-   (once the operator's player lands) live video to screen.
+   `orangepi_zero2w_sdcard.img` to microSD; confirm boot + WiFi + the stock
+   `wifibroadcast-ng` wfb link forwarding to UDP:5600, and (once the operator's
+   player lands) live video to screen.
 
 ## Follow-up specs (post-v1)
 
-Each its own spec → plan → implementation cycle: the H618 player package + fpvd
-wiring; OSD (msposd); DVR; adaptive-link; web UI / go2rtc; onboard Bluetooth.
+Each its own spec → plan → implementation cycle: the H618 player; the **`fpvd` GS
+supervisor ported to sunxi**; OSD (msposd); DVR; adaptive-link; web UI / go2rtc;
+onboard Bluetooth.

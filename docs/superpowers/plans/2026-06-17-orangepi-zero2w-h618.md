@@ -624,75 +624,46 @@ git commit -m "feat(orangepi-zero2w): ffmpeg with --enable-v4l2-request (Cedrus 
 
 ---
 
-### Task 6: fpvd integration, drop Rockchip-only packages, final MVP image
+### Task 6: wfb link (stock wifibroadcast-ng, no fpvd), drop Rockchip-only packages, final MVP image
 
-Wire the GS stack: make fpvd's player dependency board-conditional (no pixelpilot on sunxi), ship a board `config.json` whose player hook points at the operator's future player, enable the wfb/RTL/hotspot packages, and produce the final MVP image.
+Enable the stock OpenIPC wfb link stack so a USB RTL adapter carries the link and `wifibroadcast-ng` forwards video to UDP:5600 for the operator's player. **No `fpvd` on this board in v1** — `fpvd.mk` is not touched. Drop Rockchip-only packages and produce the final MVP image.
 
 **Files:**
-- Modify: `package/fpvd/fpvd.mk` (board-conditional player dependency)
-- Create: `board/orangepi/zero2w/overlay/etc/fpvd/config.json` (or the path fpvd reads) — player hook placeholder
-- Modify: `configs/orangepi_zero2w_defconfig` (enable wfb stack, RTL drivers, fpvd, hotspot deps; keep Rockchip-only off)
+- Modify: `configs/orangepi_zero2w_defconfig` (enable wfb stack + RTL drivers + hotspot deps; keep Rockchip-only and fpvd off)
+- Create (only if the stock link config needs a board tweak): files under `board/orangepi/zero2w/overlay/etc/`
 
 **Interfaces:**
 - Consumes: WiFi (Task 4), ffmpeg (Task 5).
-- Produces: the final `orangepi_zero2w_sdcard.img` MVP.
+- Produces: the final `orangepi_zero2w_sdcard.img` MVP; video forwarded to `127.0.0.1:5600` by `S98wifibroadcast` for the operator's player.
 
-- [ ] **Step 1: Inspect how fpvd selects/depends on the player**
+- [ ] **Step 1: Confirm the stock wfb link + UDP:5600 forwarding path**
 
 ```bash
-sed -n '1,60p' package/fpvd/fpvd.mk
-grep -n 'pixelpilot' package/fpvd/fpvd.mk package/fpvd/files/config.json
+# wifibroadcast-ng ships the link init + binaries; confirm the forward target.
+grep -rniE '5600|udp|wfb_rx|forward' package/wifibroadcast-ng/ 2>/dev/null | head
+ls package/wifibroadcast-ng/
 ```
-Note the exact `FPVD_DEPENDENCIES` line listing `pixelpilot` and the `config.json` `"pixelpilot"`/`"bin"` block. (Earlier survey: dep is hard-listed; `config.json` points `bin` at `/usr/bin/pixelpilot`, `rtpPort:5600`, `codec:h265`.)
+Note where `S98wifibroadcast` forwards video (expected `127.0.0.1:5600`). This is the pre-fpvd path the player will read; no fpvd needed.
 
-- [ ] **Step 2: Make the pixelpilot dependency board-conditional in `package/fpvd/fpvd.mk`**
+- [ ] **Step 2: Enable the wfb link stack + RTL drivers in the defconfig (no fpvd)**
 
-Change the dependency line so pixelpilot is only pulled when its package is enabled:
-
-```makefile
-FPVD_DEPENDENCIES = wifibroadcast-ng wfb-server python3 $(if $(BR2_PACKAGE_PIXELPILOT),pixelpilot)
-```
-
-(Match the surrounding style/exact existing dep list from Step 1; the key change is wrapping `pixelpilot` in `$(if $(BR2_PACKAGE_PIXELPILOT),...)`. Also guard the pixelpilot-launcher-retirement `rm -f` hook with the same condition so it is a no-op on sunxi.)
-
-- [ ] **Step 3: Ship a board `config.json` with the player hook as a placeholder**
-
-Copy the stock fpvd config and repoint the player at the operator's future binary. Determine the install path fpvd reads (from Step 1 — e.g. `/etc/fpvd/config.json`), then create `board/orangepi/zero2w/overlay/<that path>` with the `pixelpilot` block replaced by:
-
-```json
-  "player": {
-    "enabled": false,
-    "bin": "/usr/bin/h618-player",
-    "env": {},
-    "screenMode": "1920x1080@60",
-    "codec": "h265",
-    "rtpPort": 5600,
-    "rtpJitterMs": 0
-  }
-```
-
-Set `"enabled": false` so fpvd runs the wfb data plane + HTTP API without a player until the operator drops in `/usr/bin/h618-player`. Keep all other fpvd keys identical to the stock config. (If fpvd's schema requires the `pixelpilot` key name, keep the key name and only change `bin`/`enabled` — confirm against fpvd's config loader from Step 1.)
-
-- [ ] **Step 4: Enable the GS stack in the defconfig**
-
-Add to `configs/orangepi_zero2w_defconfig` (mirroring radxa's link stack, minus Rockchip-only):
+Add to `configs/orangepi_zero2w_defconfig`:
 
 ```
 BR2_PACKAGE_PYTHON3=y
 BR2_PACKAGE_PYTHON_PYYAML=y
-BR2_PACKAGE_PYTHON_TWISTED=y
-BR2_PACKAGE_PYTHON_MSGPACK=y
 BR2_PACKAGE_PYTHON_PYROUTE2=y
 BR2_PACKAGE_WIRELESS_REGDB=y
 BR2_PACKAGE_WIFIBROADCAST_NG=y
 BR2_PACKAGE_WFB_SERVER=y
-BR2_PACKAGE_FPVD=y
 BR2_PACKAGE_RTL8812AU=y
 BR2_PACKAGE_RTL88X2EU=y
 BR2_PACKAGE_RTL88X2CU=y
 BR2_PACKAGE_DNSMASQ=y
 BR2_PACKAGE_DOSFSTOOLS_FATLABEL=y
 BR2_PACKAGE_DOSFSTOOLS_FSCK_FAT=y
+# Off in v1 — fpvd is a follow-up (operator's call):
+# BR2_PACKAGE_FPVD
 # Rockchip-only — keep OFF:
 # BR2_PACKAGE_PIXELPILOT, BR2_PACKAGE_ROCKCHIP_MPP, BR2_PACKAGE_LIBRGA,
 # BR2_PACKAGE_MALI_DRIVER_CUSTOM, BR2_PACKAGE_ROCKCHIP_RKBIN, BR2_PACKAGE_HOST_RKDEVELOPTOOL
@@ -705,29 +676,31 @@ BR2_GADGET_MODE_GPIO_PIN_NAME="PIN_<m>"
 ```
 (Pick free header pins; `<n>`/`<m>` are a board decision — confirm with `gpioinfo` on the booted board and the OPi Zero 2W pinout.)
 
-- [ ] **Step 5: Build the full image**
+- [ ] **Step 3: Build the full image**
 
 Run: `DEFCONFIG=orangepi_zero2w_defconfig ./build.sh`
-Expected: completes; pixelpilot / rockchip-mpp / librga / mali are NOT built (confirm: `ls output/orangepi_zero2w_defconfig/build | grep -iE 'pixelpilot|rockchip-mpp|librga|mali'` → empty).
+Expected: completes; fpvd / pixelpilot / rockchip-mpp / librga / mali are NOT built (confirm: `ls output/orangepi_zero2w_defconfig/build | grep -iE 'fpvd|pixelpilot|rockchip-mpp|librga|mali'` → empty).
 
-- [ ] **Step 6: Reflash and validate the MVP end-to-end**
+- [ ] **Step 4: Reflash and validate the MVP end-to-end**
 
 On the board:
 ```bash
 uname -r                          # 6.18.35
 ip link show wlan0                # onboard WiFi present
-systemctl status fpvd 2>/dev/null || /etc/init.d/S99fpvd status 2>/dev/null
-# bring up a USB RTL adapter + wfb link as on radxa; confirm fpvd ingests it:
-curl -s http://127.0.0.1:8080/ | head        # fpvd HTTP API responds
+/etc/init.d/S98wifibroadcast status 2>/dev/null; pgrep -a wfb_rx   # link init + rx running
+# attach a USB RTL adapter; confirm it binds an RTL wfb driver:
+dmesg | grep -iE '88xxau|8812au|88x2eu|88x2cu'
+# with a transmitting drone/test source, confirm video reaches UDP:5600:
+timeout 3 socat -u UDP-RECV:5600 - | head -c 64 | xxd | head
 modetest -p | grep -i NV12        # video substrate still present for the player
 ```
-Expected: boots, onboard WiFi up, fpvd supervises the wfb data plane and serves :8080, NV12 plane ready. **No player display yet** (operator's `h618-player` not installed) — that is the defined v1 boundary.
+Expected: boots, onboard WiFi up, `S98wifibroadcast` running, USB RTL adapter binds, video bytes arrive on UDP:5600, NV12 plane ready. **No on-screen video yet** (operator's player not installed) — that is the defined v1 boundary. (`socat` is optional; if not in the image use `tcpdump`/`nc -lu 5600`.)
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add package/fpvd/fpvd.mk board/orangepi/zero2w/overlay configs/orangepi_zero2w_defconfig
-git commit -m "feat(orangepi-zero2w): fpvd GS stack, drop Rockchip pkgs, MVP image"
+git add configs/orangepi_zero2w_defconfig board/orangepi/zero2w/overlay
+git commit -m "feat(orangepi-zero2w): stock wfb link (no fpvd), drop Rockchip pkgs, MVP image"
 ```
 
 ---
@@ -784,10 +757,11 @@ git commit -m "perf(orangepi-zero2w): trim kernel config to radxa-sized image"
 - ffmpeg --enable-v4l2-request → Task 5. ✓
 - sunxi u-boot + ATF, MBR/SPL@8K image, sunxi boot.cmd → Task 1. ✓
 - Board-aware external.mk / build.sh / gen-boot-scr.sh → Task 1. ✓
-- fpvd board-conditional + drop Rockchip pkgs + player hook → Task 6. ✓
-- Player out of scope (hook placeholder) → Task 6 Step 3. ✓
+- Stock `wifibroadcast-ng` wfb link (no fpvd in v1) + drop Rockchip pkgs → Task 6. ✓
+- Player out of scope; video forwarded to UDP:5600 for the operator's player → Task 6. ✓
+- fpvd out of scope in v1 (`BR2_PACKAGE_FPVD` off; `fpvd.mk` untouched) → Task 6 Step 2. ✓
 - Bluetooth out of scope → not enabled (only `sprdwl_ng` in modules-load). ✓
 
-**Open verification items (from the spec) are handled as explicit in-task steps, not placeholders:** DTS WiFi nodes (Task 4 Step 4, with the exact diff commands + branch), ffmpeg v4l2-request patch (Task 5 Step 3, with the fallback path), GPIO pins (Task 6 Step 4, with `gpioinfo` confirmation).
+**Open verification items (from the spec) are handled as explicit in-task steps, not placeholders:** DTS WiFi nodes (Task 4 Step 4, with the exact diff commands + branch), ffmpeg v4l2-request patch (Task 5 Step 3, with the fallback path), GPIO pins (Task 6 Step 2, with `gpioinfo` confirmation).
 
-**Type/name consistency:** patch dir `board/orangepi/zero2w/linux-patches`, fragment `board/orangepi/zero2w/linux.fragment`, config `board/orangepi/zero2w/linux.config`, artifact `u-boot-sunxi-with-spl.bin`, image `orangepi_zero2w_sdcard.img`, player binary `/usr/bin/h618-player` — used consistently across tasks.
+**Type/name consistency:** patch dir `board/orangepi/zero2w/linux-patches`, fragment `board/orangepi/zero2w/linux.fragment`, config `board/orangepi/zero2w/linux.config`, artifact `u-boot-sunxi-with-spl.bin`, image `orangepi_zero2w_sdcard.img` — used consistently across tasks.
