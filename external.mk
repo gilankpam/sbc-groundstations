@@ -44,8 +44,12 @@ define LIBCLC_DELETE_TARGET
 endef
 LIBCLC_POST_INSTALL_TARGET_HOOKS += LIBCLC_DELETE_TARGET
 
-# Orange Pi Zero 2W: ffmpeg needs the V4L2 Request API hwaccel (Cedrus).
+# Orange Pi Zero 2W: ffmpeg needs the V4L2 Request API hwaccel (Cedrus). Stock
+# ffmpeg 6.1.3 lacks it, so build jernejsk/FFmpeg @ v4l2-request-n7.1 (7.1 +
+# v4l2-request) via override-srcdir, which also skips Buildroot's 6.1.3-specific
+# ffmpeg patches that would not apply to the 7.1 source.
 ifeq ($(BR2_PACKAGE_FFMPEG),y)
-FFMPEG_CONF_OPTS += --enable-v4l2-request --enable-libdrm
+FFMPEG_OVERRIDE_SRCDIR = /home/gilankpam/h618-kernel-work/ffmpeg-v4l2request-n7.1
+FFMPEG_CONF_OPTS += --enable-v4l2-request --enable-v4l2_m2m --enable-libdrm
 FFMPEG_DEPENDENCIES += libdrm
 endif

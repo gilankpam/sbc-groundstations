@@ -65,8 +65,10 @@ BR2_PACKAGE_HOST_E2FSPROGS=y
 BR2_PACKAGE_HOST_GENIMAGE=y
 BR2_PACKAGE_HOST_UBOOT_TOOLS=y
 BR2_PACKAGE_HOST_SWIG=y
-# ffmpeg with V4L2-Request (Cedrus) deferred: --enable-v4l2-request is an
-# out-of-tree ffmpeg patch series (not in stock ffmpeg 6.1.3). Needed only by
-# the operator's player, which brings its own decode stack. Re-enable + add the
-# v4l2-request patch series under board/orangepi/zero2w/patches/ffmpeg/ later.
-# BR2_PACKAGE_FFMPEG=y
+# ffmpeg built from jernejsk/FFmpeg @ v4l2-request-n7.1 (7.1 + V4L2-Request
+# hwaccel) via FFMPEG_OVERRIDE_SRCDIR in external.mk — the player links libav*
+# with the v4l2request hwaccel. Stock ffmpeg 6.1.3 lacks --enable-v4l2-request.
+BR2_PACKAGE_FFMPEG=y
+BR2_PACKAGE_FFMPEG_GPL=y
+BR2_PACKAGE_FFMPEG_HWACCEL=y
+BR2_PACKAGE_FFMPEG_SWSCALE=y
