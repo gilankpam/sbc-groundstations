@@ -1,0 +1,84 @@
+{
+  "link": {
+    "channel": 132,
+    "width": 20,
+    "txPowerDbm": null,
+    "region": "US",
+    "linkId": 7669206,
+    "beamforming": {
+      "enabled": false
+    },
+    "wlans": "auto"
+  },
+  "wfb": {
+    "profile": "gs",
+    "mavlink": {
+      "peer": "connect://127.0.0.1:14550"
+    },
+    "raw": {}
+  },
+  "drone": {
+    "host": "10.5.0.10",
+    "apiPort": 8080
+  },
+  "dynamicLink": {
+    "enabled": false,
+    "maxMcs": 5,
+    "radioProfile": "m8812eu2",
+    "dronePort": 9999,
+    "selector": {
+      "probeViableThreshold": 0.99,
+      "probeFreshnessMs": 500.0,
+      "promoteDebounceWindows": 3,
+      "videoDemotePer": 0.05,
+      "emergencyFecPressure": 0.8,
+      "holdModesDownMs": 1000,
+      "minBetweenChangesMs": 200,
+      "starvationWindows": 5,
+      "lossWindows": 2
+    },
+    "smoothing": {
+      "ewmaAlphaRssi": 0.2,
+      "ewmaAlphaFec": 0.2,
+      "ewmaAlphaBurst": 0.1,
+      "starvationThresholdPps": 50.0
+    },
+    "flightlog": {
+      "enabled": true
+    },
+    "rssiNorm": {
+      "enabled": true
+    }
+  },
+  "idrForward": {
+    "enabled": true,
+    "port": 11223
+  },
+  "pixelpilot": {
+    "enabled": true,
+    "bin": "/usr/bin/pixelpilot",
+    "env": {},
+    "configPath": "/etc/pixelpilot.yaml",
+    "osdConfigPath": "/etc/pixelpilot/osd.json",
+    "screenMode": "1920x1080@60",
+    "videoScale": 1.0,
+    "codec": "h265",
+    "rtpPort": 5600,
+    "rtpJitterMs": 0,
+    "dvr": {
+      "framerate": 60,
+      "dir": "/media/dvr",
+      "template": "record_%Y-%m-%d_%H-%M-%S.mp4",
+      "fmp4": true,
+      "sequencedFiles": true,
+      "osd": false,
+      "mode": "raw",
+      "maxSizeMb": 4000,
+      "reencCodec": "h264",
+      "reencBitrate": 8000,
+      "reencFps": 60,
+      "reencResolution": "1080p"
+    },
+    "extraArgs": []
+  }
+}
