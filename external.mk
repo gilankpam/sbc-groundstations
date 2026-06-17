@@ -53,4 +53,12 @@ ifeq ($(BR2_PACKAGE_FFMPEG),y)
 # zero2w/local.mk) — OVERRIDE_SRCDIR is only honored from BR2_PACKAGE_OVERRIDE_FILE.
 FFMPEG_CONF_OPTS += --enable-v4l2-request --enable-v4l2_m2m --enable-libdrm
 FFMPEG_DEPENDENCIES += libdrm
+# Buildroot's 6.1.3 ffmpeg.mk passes options removed in ffmpeg 7.1 (e.g.
+# --disable-crystalhd), which the jernejsk 7.1 source's configure rejects.
+# Neutralize die_unknown in the override-rsynced configure so removed options
+# are ignored instead of aborting the build.
+define FFMPEG_TOLERATE_REMOVED_CONF_OPTS
+	$(SED) '/^die_unknown(){/,/^}/ s/exit 1/return 0/' $(@D)/configure
+endef
+FFMPEG_PRE_CONFIGURE_HOOKS += FFMPEG_TOLERATE_REMOVED_CONF_OPTS
 endif
