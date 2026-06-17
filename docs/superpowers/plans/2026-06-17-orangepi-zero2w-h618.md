@@ -26,8 +26,10 @@ Reference inputs already gathered (do not re-derive):
 
 ## Global Constraints
 
-- **Kernel:** mainline Linux **6.18.x** (match the validated `6.18.35`). Built in Buildroot from a custom tarball; no Armbian kernel tree.
-- **Onboard WiFi = W1:** replay the Armbian UWE5622 patch subset **in-tree** as `BR2_LINUX_KERNEL_PATCH`; no out-of-tree kernel-module package. Firmware ships via the **board rootfs overlay**, not a package.
+> **REVISION (mid-execution, kernel strategy pivot — Option 1).** Mainline 6.18.35 has **no** H616/H618 DE33 display support (verified against kernel.org: `sun50i-h616.dtsi` has no display nodes; `sun8i_vi_layer.c` has no `de33` array, so patch `0099` won't apply). DE33 + the board's HDMI/WiFi DTS + the uwe5622 driver are all carried by **Armbian** patches. So the kernel is now built from a **pinned snapshot of the Armbian-patched 6.18.35 source** (which already contains DE33, the operator's `0099`/`0100`, the uwe5622 driver, and the HDMI+WiFi DTS), not pristine mainline. This **reverts Task 3** (patches already in the snapshot) and **collapses Task 4** to firmware-only.
+
+- **Kernel:** built in Buildroot from a **pinned tarball snapshot of the Armbian-patched 6.18.35 source** at `~/h618-kernel-work/opi-kernel-snapshot/linux-6.18.35-opi-sunxi.tar.gz` (via `BR2_LINUX_KERNEL_CUSTOM_TARBALL`). Config = the captured live-board `.config` (`board/orangepi/zero2w/linux.config`), which now matches the snapshot source exactly. **No kernel patches** — `0099`/`0100`/uwe5622/DTS are all in the snapshot.
+- **Onboard WiFi:** the uwe5622 **driver and the SDIO WiFi DTS are already in the kernel snapshot**, and the captured `.config` enables `CONFIG_WLAN_UWE5622=m`/`CONFIG_SPRDWL_NG=m`. The board only ships the **firmware** (`/lib/firmware/uwe5622/*` + `wcnmodem.bin` symlink) via the rootfs overlay + a `modules-load.d` entry. No patches, no DTS work, no kernel-module package.
 - **Video userspace = `ffmpeg --enable-v4l2-request` only.** No new player package; the player is the operator's separate work. Leave the fpvd player hook as a placeholder.
 - **Image:** MBR partition table, `u-boot-sunxi-with-spl.bin` at **8K**, squashfs rootfs, **SD-boot only** (no eMMC flasher).
 - **Additive only:** do not change any Rockchip board's defconfig or `board/radxa/zero3/`. After every task, `radxa_zero3` must still build (smoke-check in Task 1, then trust).
@@ -149,8 +151,8 @@ BR2_ROOTFS_POST_BUILD_SCRIPT="${BR2_EXTERNAL_OPENIPC_SBC_GS_PATH}/board/common/p
 BR2_ROOTFS_POST_IMAGE_SCRIPT="support/scripts/genimage.sh ${BR2_EXTERNAL_OPENIPC_SBC_GS_PATH}/board/common/gen-boot-scr.sh"
 BR2_ROOTFS_POST_SCRIPT_ARGS="-c ${BR2_EXTERNAL}/board/orangepi/zero2w/genimage.cfg"
 BR2_LINUX_KERNEL=y
-BR2_LINUX_KERNEL_CUSTOM_VERSION=y
-BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE="6.18.35"
+BR2_LINUX_KERNEL_CUSTOM_TARBALL=y
+BR2_LINUX_KERNEL_CUSTOM_TARBALL_LOCATION="file:///home/gilankpam/h618-kernel-work/opi-kernel-snapshot/linux-6.18.35-opi-sunxi.tar.gz"
 BR2_LINUX_KERNEL_USE_CUSTOM_CONFIG=y
 BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="${BR2_EXTERNAL_OPENIPC_SBC_GS_PATH}/board/orangepi/zero2w/linux.config"
 BR2_LINUX_KERNEL_DTS_SUPPORT=y
@@ -188,8 +190,7 @@ BR2_TARGET_UBOOT_NEEDS_DTC=y
 BR2_TARGET_UBOOT_NEEDS_PYLIBFDT=y
 BR2_TARGET_UBOOT_NEEDS_ATF_BL31=y
 BR2_TARGET_ARM_TRUSTED_FIRMWARE=y
-BR2_TARGET_ARM_TRUSTED_FIRMWARE_CUSTOM_VERSION=y
-BR2_TARGET_ARM_TRUSTED_FIRMWARE_CUSTOM_VERSION_VALUE="2.11"
+BR2_TARGET_ARM_TRUSTED_FIRMWARE_LATEST_VERSION=y
 BR2_TARGET_ARM_TRUSTED_FIRMWARE_PLATFORM="sun50i_h616"
 BR2_TARGET_ARM_TRUSTED_FIRMWARE_BL31=y
 BR2_PACKAGE_HOST_E2FSPROGS=y
@@ -299,177 +300,59 @@ The on-hardware "boots + core peripherals" check that lived here is performed at
 
 ---
 
-### Task 3: Hardware video path — Cedrus + DE33 NV12 overlay plane
+### Task 3: REVERT — Cedrus/DE33 video is in the kernel snapshot
 
-Apply the operator's two patches and confirm the kernel exposes the NV12 overlay plane and the Cedrus decoder — the substrate the operator's player needs.
+**Reverted by the Option-1 pivot.** The kernel is now the Armbian-patched source snapshot, which **already contains** the DE33 driver, the operator's `0099`/`0100` (verified applied in the snapshot: `sun8i_vi_layer_de33_formats[]` has `NV12`/`NV21`/…; the cedrus tiled `NV12_32L32` capture entry is removed), and the HDMI display DTS. Re-applying `0099`/`0100` would double-apply and fail. The captured `.config` already enables all the video symbols, so the fragment is redundant too.
 
-**Files:**
-- Create: `board/orangepi/zero2w/linux-patches/0099-de33-enable-nv12-vi-plane.patch` (copy)
-- Create: `board/orangepi/zero2w/linux-patches/0100-cedrus-prefer-linear-nv12.patch` (copy)
-- Create: `board/orangepi/zero2w/linux.fragment` (assert the video symbols)
-- Modify: `configs/orangepi_zero2w_defconfig` (add `BR2_LINUX_KERNEL_PATCH` + fragment)
+**Files (undo the original Task 3 commit `36b8d02`):**
+- Delete: `board/orangepi/zero2w/linux-patches/0099-de33-enable-nv12-vi-plane.patch`
+- Delete: `board/orangepi/zero2w/linux-patches/0100-cedrus-prefer-linear-nv12.patch`
+- Delete: `board/orangepi/zero2w/linux.fragment`
+- Modify: `configs/orangepi_zero2w_defconfig` — remove the `BR2_LINUX_KERNEL_PATCH` and `BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES` lines added by `36b8d02`.
 
-**Interfaces:**
-- Consumes: the known-good config baseline (Task 2).
-- Produces: `BR2_LINUX_KERNEL_PATCH="${...}/board/orangepi/zero2w/linux-patches"`; `linux.fragment` (Task 4 appends WiFi symbols to this same file). Confirmed kernel capability: DRM plane with `NV12` + `/dev/video0` = Cedrus.
-
-- [ ] **Step 1: Copy the video patches into the board tree**
+- [ ] **Step 1: Remove the patches, fragment, and the two defconfig lines**
 
 ```bash
-mkdir -p board/orangepi/zero2w/linux-patches
-cp ~/Projects/h618-mainline-video/patches/0099-de33-enable-nv12-vi-plane.patch \
-   ~/Projects/h618-mainline-video/patches/0100-cedrus-prefer-linear-nv12.patch \
-   board/orangepi/zero2w/linux-patches/
+git rm board/orangepi/zero2w/linux-patches/0099-de33-enable-nv12-vi-plane.patch \
+       board/orangepi/zero2w/linux-patches/0100-cedrus-prefer-linear-nv12.patch \
+       board/orangepi/zero2w/linux.fragment
+rmdir board/orangepi/zero2w/linux-patches 2>/dev/null || true
+# remove the two lines from the defconfig:
+sed -i '/BR2_LINUX_KERNEL_PATCH=/d;/BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES=/d' configs/orangepi_zero2w_defconfig
 ```
 
-- [ ] **Step 2: Create `board/orangepi/zero2w/linux.fragment`** (assert the video symbols are built-in)
-
-```
-# --- Filesystem (squashfs root + overlay) ---
-CONFIG_SQUASHFS=y
-CONFIG_OVERLAY_FS=y
-CONFIG_MODULE_COMPRESS_NONE=y
-
-# --- Cedrus HW video decode + sun4i/DE33 DRM (patches 0099/0100 act on these) ---
-CONFIG_MEDIA_SUPPORT=y
-CONFIG_MEDIA_CONTROLLER=y
-CONFIG_V4L_MEM2MEM_DRIVERS=y
-CONFIG_VIDEO_SUNXI_CEDRUS=y
-CONFIG_DRM=y
-CONFIG_DRM_SUN4I=y
-CONFIG_DRM_SUN8I_MIXER=y
-CONFIG_DRM_SUN8I_DW_HDMI=y
-CONFIG_DMABUF_HEAPS=y
-CONFIG_DMABUF_HEAPS_CMA=y
-CONFIG_DMABUF_HEAPS_SYSTEM=y
-```
-
-- [ ] **Step 3: Wire patches + fragment into the defconfig**
-
-Add to `configs/orangepi_zero2w_defconfig` (after the `BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE` line):
-
-```
-BR2_LINUX_KERNEL_PATCH="${BR2_EXTERNAL_OPENIPC_SBC_GS_PATH}/board/orangepi/zero2w/linux-patches"
-BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="${BR2_EXTERNAL_OPENIPC_SBC_GS_PATH}/board/orangepi/zero2w/linux.fragment"
-```
-
-- [ ] **Step 4: Rebuild the kernel and confirm patches applied**
+- [ ] **Step 2: Verify the defconfig no longer references patches/fragment**
 
 ```bash
-DEFCONFIG=orangepi_zero2w_defconfig ./build.sh linux-rebuild 2>&1 | tee /tmp/k.log | grep -iE 'Applying|0099|0100|patch'
+grep -nE 'BR2_LINUX_KERNEL_PATCH|CONFIG_FRAGMENT_FILES' configs/orangepi_zero2w_defconfig || echo "clean (no patch/fragment refs)"
 ```
-Expected: both `0099` and `0100` apply cleanly. If a hunk fails against 6.18.35 (vs. the operator's tree), reconcile the patch context and re-run. Build the full image after.
+Expected: "clean".
 
-- [ ] **Step 5: Reflash and validate the video plane + decoder on hardware**
-
-On the booted board (HDMI attached):
-```bash
-modetest -p 2>/dev/null | grep -iE 'NV12|plane'   # expect an overlay plane listing NV12
-ls -l /dev/video0
-cat /sys/class/video4linux/video0/name            # expect a cedrus/codec name
-```
-Expected before (Task 2 baseline, no `0099`): no NV12 format on the VI plane.
-Expected after: `modetest -p` lists `NV12` on the overlay plane; `/dev/video0` is the Cedrus decoder. (Full decode-to-screen is validated with ffmpeg in Task 5 / the operator's player.)
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-git add board/orangepi/zero2w/linux-patches board/orangepi/zero2w/linux.fragment configs/orangepi_zero2w_defconfig
-git commit -m "feat(orangepi-zero2w): enable Cedrus + DE33 NV12 overlay (patches 0099/0100)"
+git add -A board/orangepi/zero2w configs/orangepi_zero2w_defconfig
+git commit -m "revert(orangepi-zero2w): drop 0099/0100/fragment — already in kernel snapshot"
 ```
+
+(Video is validated at the Task 4/6 milestone via `modetest -p` showing the `NV12` overlay plane + `/dev/video0` Cedrus — the snapshot kernel provides it. HDMI now works because the snapshot DTS enables `&de`/`&hdmi`, which mainline lacked.)
 
 ---
 
-### Task 4: Onboard WiFi — UWE5622 (W1, in-tree patch replay) + firmware
+### Task 4: Onboard WiFi — UWE5622 firmware (driver is in the snapshot)
 
-Bring up `wlan0` by replaying the Armbian UWE5622 patch subset as in-tree kernel patches, enabling the config symbols, shipping the firmware via the overlay, and confirming/adding the DTS SDIO nodes.
+The uwe5622 **driver and the SDIO WiFi DTS are already in the kernel snapshot**, and the captured `.config` enables `CONFIG_WLAN_UWE5622=m`/`CONFIG_SPRDWL_NG=m`/`CONFIG_UNISOC_WIFI_PS=y` — so the kernel build produces `sprdwl_ng.ko`/`sunxi_addr.ko` and installs them. This task only ships the **firmware** the driver loads, plus an autoload entry.
 
 **Files:**
-- Create: `board/orangepi/zero2w/linux-patches/uwe5622-*.patch` (subset, see Step 1)
-- Create (maybe): `board/orangepi/zero2w/linux-patches/0200-orangepi-zero2w-wifi-nodes.patch` (DTS, only if mainline lacks the nodes)
-- Modify: `board/orangepi/zero2w/linux.fragment` (append WiFi symbols)
-- Create: `board/orangepi/zero2w/overlay/lib/firmware/uwe5622/*` + symlink
+- Create: `board/orangepi/zero2w/overlay/lib/firmware/uwe5622/{wcnmodem.bin,wcnmodem-38222.bin,wifi_2355b001_1ant.ini}`
+- Create: `board/orangepi/zero2w/overlay/lib/firmware/wcnmodem.bin` (symlink → `uwe5622/wcnmodem.bin`)
 - Create: `board/orangepi/zero2w/overlay/etc/modules-load.d/uwe5622.conf`
 
 **Interfaces:**
-- Consumes: the kernel patch dir + fragment from Task 3.
-- Produces: loadable modules `sprdwl_ng`, `sunxi_addr`; `wlan0` netdev; firmware under `/lib/firmware/uwe5622/`.
+- Consumes: the kernel snapshot (driver + DTS) + captured `.config` (WiFi symbols).
+- Produces: firmware under `/lib/firmware/uwe5622/`; `wlan0` once `sprdwl_ng` loads.
 
-- [ ] **Step 1: Copy the version≥6.18 + sunxi patch subset, in apply order**
-
-The base patch creates the whole `drivers/net/wireless/uwe5622/` subtree; the rest adapt it. Copy this exact subset from `~/h618-kernel-work/armbian-build/patch/misc/wireless-uwe5622/` and prefix with sequence numbers so `BR2_LINUX_KERNEL_PATCH` applies them in order (Buildroot applies `*.patch` alphabetically):
-
-```bash
-SRC=~/h618-kernel-work/armbian-build/patch/misc/wireless-uwe5622
-DST=board/orangepi/zero2w/linux-patches
-cp $SRC/uwe5622-allwinner-v6.3.patch                                  $DST/0300-uwe5622-allwinner-v6.3.patch
-cp $SRC/uwe5622-allwinner-bugfix-v6.3.patch                           $DST/0301-uwe5622-allwinner-bugfix-v6.3.patch
-cp $SRC/uwe5622-allwinner-v6.3-compilation-fix.patch                  $DST/0302-uwe5622-allwinner-v6.3-compilation-fix.patch
-cp $SRC/uwe5622-v6.4-post.patch                                       $DST/0303-uwe5622-v6.4-post.patch
-cp $SRC/uwe5622-warnings.patch                                        $DST/0304-uwe5622-warnings.patch
-cp $SRC/uwe5622-v6.1.patch                                            $DST/0305-uwe5622-v6.1.patch
-cp $SRC/uwe5622-park-link-v6.1-post.patch                             $DST/0306-uwe5622-park-link-v6.1-post.patch
-cp $SRC/uwe5622-v6.6-fix-tty-sdio.patch                               $DST/0307-uwe5622-v6.6-fix-tty-sdio.patch
-cp $SRC/uwe5622-fix-setting-mac-address-for-netdev.patch              $DST/0308-uwe5622-fix-mac-netdev.patch
-cp $SRC/wireless-uwe5622-Fix-compilation-with-6.7-kernel.patch        $DST/0309-uwe5622-fix-6.7.patch
-cp $SRC/wireless-uwe5622-reduce-system-load.patch                     $DST/0310-uwe5622-reduce-load.patch
-cp $SRC/uwe5622-v6.9.patch                                            $DST/0311-uwe5622-v6.9.patch
-cp $SRC/uwe5622-v6.11.patch                                           $DST/0312-uwe5622-v6.11.patch
-cp $SRC/uwe5622-fix-spanning-writes.patch                             $DST/0313-uwe5622-fix-spanning-writes.patch
-cp $SRC/uwe5622-fix-timer-api-changes-for-6.15-only-sunxi.patch       $DST/0314-uwe5622-timer-6.15-sunxi.patch
-cp $SRC/uwe5622-v6.16.patch                                           $DST/0315-uwe5622-v6.16.patch
-cp $SRC/uwe5622-v6.17.patch                                           $DST/0316-uwe5622-v6.17.patch
-cp $SRC/uwe5622-v6.18.patch                                           $DST/0317-uwe5622-v6.18.patch
-cp $SRC/wireless-uwe5622-Fix-missing-prototypes.patch                 $DST/0318-uwe5622-fix-missing-prototypes.patch
-```
-
-(This mirrors `driver_uwe5622()` for `version ≥ 6.18 && LINUXFAMILY == sun*`. The `-v6.19`/`-v7.1` patches are NOT applied — kernel is 6.18.)
-
-- [ ] **Step 2: Add the Makefile-hook patch (wire the subtree into the kernel build)**
-
-`driver_uwe5622()` appends `obj-$(CONFIG_SPARD_WLAN_SUPPORT) += uwe5622/` to `drivers/net/wireless/Makefile`. Encode that as a patch so the in-tree build picks up the subtree:
-
-Create `board/orangepi/zero2w/linux-patches/0299-uwe5622-wireless-makefile.patch`:
-
-```diff
---- a/drivers/net/wireless/Makefile
-+++ b/drivers/net/wireless/Makefile
-@@ -1,3 +1,5 @@
- # SPDX-License-Identifier: GPL-2.0
- #
- # Makefile for the Linux Wireless network device drivers.
-+
-+obj-$(CONFIG_SPARD_WLAN_SUPPORT) += uwe5622/
-```
-
-Verify the context lines against the real `drivers/net/wireless/Makefile` in the extracted 6.18.35 source (`output/orangepi_zero2w_defconfig/build/linux-6.18.35/drivers/net/wireless/Makefile`) and adjust the hunk header/context to match exactly. Numbered `0299` so it applies before the `03xx` base patch's referenced Kconfig is needed but after the source tree exists — if the base patch (`0300`) already edits this Makefile itself, **skip this step** (check `0300` first: `grep -l 'net/wireless/Makefile' $DST/0300-*.patch`).
-
-- [ ] **Step 3: Append WiFi symbols to `board/orangepi/zero2w/linux.fragment`**
-
-```
-# --- Onboard UWE5622 WiFi (out-of-tree driver, added in-tree via patches) ---
-CONFIG_STAGING=y
-CONFIG_CFG80211=m
-CONFIG_RFKILL=m
-CONFIG_SPARD_WLAN_SUPPORT=y
-CONFIG_WLAN_UWE5622=m
-CONFIG_SPRDWL_NG=m
-CONFIG_UNISOC_WIFI_PS=y
-```
-
-- [ ] **Step 4: Verify the DTS has the SDIO WiFi nodes; patch if missing**
-
-Compare the reference board's live DT against mainline's built DTB:
-```bash
-# Reference (Armbian) — known to have the nodes:
-ssh root@192.168.10.91 'ls -d /proc/device-tree/soc/mmc@4021000 /proc/device-tree/wifi-pwrseq /proc/device-tree/vcc-wifi-io'
-# Mainline build output:
-dtc -I dtb -O dts output/orangepi_zero2w_defconfig/build/linux-6.18.35/arch/arm64/boot/dts/allwinner/sun50i-h618-orangepi-zero2w.dtb 2>/dev/null | grep -iE 'mmc@4021000|wifi-pwrseq|vcc-wifi|sdio' 
-```
-Expected: if mainline already declares `mmc@4021000` (SDIO, `cap-sdio-irq`, `non-removable`, `mmc-pwrseq`) + a `wifi-pwrseq` + `vcc-wifi-io` regulator, **no DTS patch needed** — record that and skip to Step 5.
-If missing: create `board/orangepi/zero2w/linux-patches/0200-orangepi-zero2w-wifi-nodes.patch` adding those nodes, derived from the delta between the Armbian DTS source (`~/h618-kernel-work/armbian-build/.../sun50i-h618-orangepi-zero2w.dts`) and mainline. Apply pin/reg/clock (32k) properties exactly as in the reference DT.
-
-- [ ] **Step 5: Install the firmware via the board overlay**
+- [ ] **Step 1: Install the firmware from the reference board via the overlay**
 
 ```bash
 mkdir -p board/orangepi/zero2w/overlay/lib/firmware/uwe5622
@@ -479,34 +362,40 @@ scp root@192.168.10.91:/lib/firmware/uwe5622/wcnmodem.bin \
     board/orangepi/zero2w/overlay/lib/firmware/uwe5622/
 ln -sf uwe5622/wcnmodem.bin board/orangepi/zero2w/overlay/lib/firmware/wcnmodem.bin
 ```
+Also check the reference board for a `wifi_2355b001_1ant.ini` symlink at `/lib/firmware/` and replicate it if present.
+
+- [ ] **Step 2: Autoload the driver at boot**
+
 Create `board/orangepi/zero2w/overlay/etc/modules-load.d/uwe5622.conf`:
 ```
 sprdwl_ng
 ```
 
-- [ ] **Step 6: Build**
+- [ ] **Step 3: Verify the overlay contents**
 
-Run: `DEFCONFIG=orangepi_zero2w_defconfig ./build.sh linux-rebuild 2>&1 | grep -iE 'uwe5622|sprdwl|error'` then full `./build.sh`.
-Expected: the `03xx` patches apply; `sprdwl_ng.ko` + `sunxi_addr.ko` build. Fix any 6.18 compile breakage by confirming the `0317-uwe5622-v6.18.patch` applied (it targets exactly this version).
-
-- [ ] **Step 7: Reflash and bring up wlan0**
-
-On the board:
 ```bash
-modprobe sprdwl_ng
-dmesg | grep -iE 'sprd|uwe5622|wcn|wlan'    # firmware load + wlan0 registered
+find board/orangepi/zero2w/overlay/lib/firmware -type f -o -type l
+test -s board/orangepi/zero2w/overlay/lib/firmware/uwe5622/wcnmodem.bin && echo "firmware present"
+```
+Expected: the three firmware files + the symlink + `modules-load.d/uwe5622.conf`.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add board/orangepi/zero2w/overlay
+git commit -m "feat(orangepi-zero2w): ship UWE5622 onboard-WiFi firmware + autoload"
+```
+
+- [ ] **Step 5: (At the WiFi milestone build) bring up wlan0 on hardware**
+
+After the next full build + flash, on the board:
+```bash
+dmesg | grep -iE 'sprd|uwe5622|wcn|wlan'    # firmware load + wlan0 registered (sprdwl_ng autoloaded)
 ip link show wlan0
 iw dev wlan0 scan | grep SSID | head        # station scan works
+modetest -p | grep -i NV12                  # video plane present (snapshot kernel) — same milestone
 ```
-Expected before: no `wlan0`.
-Expected after: `wlan0` present, firmware loaded, scan returns nearby SSIDs.
-
-- [ ] **Step 8: Commit**
-
-```bash
-git add board/orangepi/zero2w/linux-patches board/orangepi/zero2w/linux.fragment board/orangepi/zero2w/overlay
-git commit -m "feat(orangepi-zero2w): onboard UWE5622 WiFi via in-tree patch replay + firmware"
-```
+Expected: `wlan0` present, firmware loaded, scan returns SSIDs; NV12 overlay plane present.
 
 ---
 

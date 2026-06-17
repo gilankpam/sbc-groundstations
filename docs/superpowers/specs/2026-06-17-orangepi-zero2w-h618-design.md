@@ -51,22 +51,39 @@ adaptive-link; web UI (openipc-gs-web / go2rtc); onboard **Bluetooth**
 path + ffmpeg + video on UDP:5600) so the player drops in without further board
 changes.
 
+> **⚠️ REVISION (during implementation) — kernel-strategy pivot to Option 1.**
+> Decisions 1 and 2 below were the *original* plan and are **superseded**. They
+> rested on a wrong premise: that the video path is stock-mainline + two patches.
+> In fact **mainline 6.18.35 has no H616/H618 DE33 display support at all** —
+> verified against kernel.org: `sun50i-h616.dtsi` has no display nodes, and
+> `sun8i_vi_layer.c` has no `de33` array, so patch `0099` won't even apply. The
+> earlier "drift" check was wrong because it read config symbols enabled in the
+> *running Armbian* kernel, not mainline source. DE33 + the HDMI/WiFi board DTS +
+> the uwe5622 driver are all carried by Armbian patches.
+>
+> **Superseding decisions (what is actually built):**
+> - **Kernel** = built in Buildroot from a **pinned tarball snapshot of the
+>   Armbian-patched 6.18.35 source** (`~/h618-kernel-work/opi-kernel-snapshot/`),
+>   which already contains DE33, the operator's `0099`/`0100` (verified applied),
+>   the uwe5622 driver, and the HDMI+WiFi DTS. `BR2_LINUX_KERNEL_CUSTOM_TARBALL` +
+>   the captured `.config` (now matches the source exactly). **No kernel patches.**
+> - **Onboard WiFi** = driver + DTS are in the snapshot; the captured `.config`
+>   enables `CONFIG_WLAN_UWE5622=m`/`CONFIG_SPRDWL_NG=m`. The board only ships the
+>   **firmware** via the overlay + a `modules-load.d` autoload. No patch replay.
+> - Decision 3 (ffmpeg only) is unchanged.
+> - Image still small via the Task 7 config trim; sunxi u-boot needs host
+>   openssl + gnutls + pyelftools, and ATF `v2.12` (not `2.11`).
+
 ## Key decisions (from brainstorming)
 
-1. **Kernel = native mainline in Buildroot** (not prebuilt-Armbian, not
-   Armbian-source). Validated drift: the entire video path is stock-mainline
+1. **Kernel = native mainline in Buildroot** *(SUPERSEDED — see revision banner above)*. Original rationale: the video path looked like stock-mainline
    built-ins (`VIDEO_SUNXI_CEDRUS=y`, `DRM_SUN4I=y`, `DRM_SUN8I_MIXER=y`,
-   `DMABUF_HEAPS=y`, `V4L_MEM2MEM_DRIVERS=y`); only patches `0099`/`0100` are
-   needed on top. The live Armbian config is a distro monster (2173 built-ins +
-   2547 modules) — we build a **trimmed** config instead, for a radxa-sized image.
-2. **Onboard WiFi = W1, replay Armbian's UWE5622 patch series in-tree.** There is
+   `DMABUF_HEAPS=y`, `V4L_MEM2MEM_DRIVERS=y`) plus `0099`/`0100`. This was wrong —
+   those symbols are Armbian's, not mainline's; mainline 6.18.35 has no DE33.
+2. **Onboard WiFi = W1, replay Armbian's UWE5622 patch series in-tree** *(SUPERSEDED — the driver is in the snapshot, so we ship firmware only)*. There is
    **no upstream repo**: Armbian adds the driver via a 13 MB base patch
-   (`uwe5622-allwinner-v6.3.patch`, lifted from the Allwinner/UNISOC "longan" BSP)
-   plus ~20 version-specific patches, including `uwe5622-v6.18.patch` matching our
-   kernel. We vendor the needed subset into `board/orangepi/zero2w/linux-patches/`
-   and enable the config symbols — the driver builds in-tree exactly as on the
-   validated board. (W2, an out-of-tree kernel-module package, was rejected: the
-   vendor Makefiles would likely need `M=` build fixups — extra risk for no gain.)
+   (`uwe5622-allwinner-v6.3.patch`) plus ~20 version-specific patches. The pivoted
+   approach gets all of this from the snapshot rather than re-applying it.
 3. **Video userspace = ffmpeg with `--enable-v4l2-request` only.** The player
    itself is the operator's separate work. No new player package in this spec.
 
