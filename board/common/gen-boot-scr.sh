@@ -22,10 +22,15 @@ else
     PLATFORM=$(basename "$(dirname "$BINARIES_DIR")" | sed 's/_defconfig$//')
 fi
 
-# Locate boot.cmd via BR2_EXTERNAL or BR2_EXTERNAL_OPENIPC_SBC_GS_PATH
+# Locate boot.cmd via BR2_EXTERNAL or BR2_EXTERNAL_OPENIPC_SBC_GS_PATH.
+# Prefer a board-specific boot.cmd (board/<vendor>/<board>/boot.cmd) when present,
+# derived from the defconfig name, else fall back to the common (Rockchip) one.
 _EXT="${BR2_EXTERNAL:-${BR2_EXTERNAL_OPENIPC_SBC_GS_PATH}}"
 : "${_EXT:?Neither BR2_EXTERNAL nor BR2_EXTERNAL_OPENIPC_SBC_GS_PATH is set}"
-BOOT_CMD="${_EXT}/board/common/boot.cmd"
+case "$PLATFORM" in
+	orangepi_zero2w) BOOT_CMD="${_EXT}/board/orangepi/zero2w/boot.cmd" ;;
+	*)               BOOT_CMD="${_EXT}/board/common/boot.cmd" ;;
+esac
 
 SDCARD_IMG="${BINARIES_DIR}/sdcard.img"
 BOOT_SCR="${BINARIES_DIR}/boot.scr"
