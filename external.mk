@@ -49,7 +49,8 @@ LIBCLC_POST_INSTALL_TARGET_HOOKS += LIBCLC_DELETE_TARGET
 # v4l2-request) via override-srcdir, which also skips Buildroot's 6.1.3-specific
 # ffmpeg patches that would not apply to the 7.1 source.
 ifeq ($(BR2_PACKAGE_FFMPEG),y)
-FFMPEG_OVERRIDE_SRCDIR = /home/gilankpam/h618-kernel-work/ffmpeg-v4l2request-n7.1
+# FFMPEG_OVERRIDE_SRCDIR is set in the board override file (board/orangepi/
+# zero2w/local.mk) — OVERRIDE_SRCDIR is only honored from BR2_PACKAGE_OVERRIDE_FILE.
 FFMPEG_CONF_OPTS += --enable-v4l2-request --enable-v4l2_m2m --enable-libdrm
 FFMPEG_DEPENDENCIES += libdrm
 endif
