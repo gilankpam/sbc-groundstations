@@ -43,3 +43,9 @@ define LIBCLC_DELETE_TARGET
 	rm -rf $(TARGET_DIR)/usr/share/clc
 endef
 LIBCLC_POST_INSTALL_TARGET_HOOKS += LIBCLC_DELETE_TARGET
+
+# Orange Pi Zero 2W: ffmpeg needs the V4L2 Request API hwaccel (Cedrus).
+ifeq ($(BR2_PACKAGE_FFMPEG),y)
+FFMPEG_CONF_OPTS += --enable-v4l2-request --enable-libdrm
+FFMPEG_DEPENDENCIES += libdrm
+endif
