@@ -51,8 +51,16 @@ LIBCLC_POST_INSTALL_TARGET_HOOKS += LIBCLC_DELETE_TARGET
 ifeq ($(BR2_PACKAGE_FFMPEG),y)
 # FFMPEG_OVERRIDE_SRCDIR is set in the board override file (board/orangepi/
 # zero2w/local.mk) — OVERRIDE_SRCDIR is only honored from BR2_PACKAGE_OVERRIDE_FILE.
-FFMPEG_CONF_OPTS += --enable-v4l2-request --enable-v4l2_m2m --enable-libdrm
-FFMPEG_DEPENDENCIES += libdrm
+FFMPEG_DEPENDENCIES += libdrm linux
+FFMPEG_CONF_OPTS += --enable-v4l2-request --enable-v4l2_m2m --enable-libdrm --enable-libudev
+# v4l2-request needs kernel UAPI newer than the toolchain's 4.20 headers
+# (V4L2_BUF_FLAG_M2M_HOLD_CAPTURE_BUF, v4l2_timeval_to_ns). Install the snapshot
+# kernel's UAPI headers and point ffmpeg's includes at them.
+FFMPEG_CONF_OPTS += --extra-cflags=-I$(FFMPEG_DIR)/kuapi/include
+define FFMPEG_INSTALL_KERNEL_UAPI
+	$(MAKE) -C $(LINUX_DIR) ARCH=arm64 INSTALL_HDR_PATH=$(FFMPEG_DIR)/kuapi headers_install
+endef
+FFMPEG_PRE_CONFIGURE_HOOKS += FFMPEG_INSTALL_KERNEL_UAPI
 # Buildroot's 6.1.3 ffmpeg.mk passes options removed in ffmpeg 7.1 (e.g.
 # --disable-crystalhd), which the jernejsk 7.1 source's configure rejects.
 # Neutralize die_unknown in the override-rsynced configure so removed options
