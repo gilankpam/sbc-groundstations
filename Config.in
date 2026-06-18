@@ -19,6 +19,7 @@ source "$BR2_EXTERNAL_OPENIPC_SBC_GS_PATH/package/gstreamer-tee/Config.in"
 source "$BR2_EXTERNAL_OPENIPC_SBC_GS_PATH/package/drm_info/Config.in"
 source "$BR2_EXTERNAL_OPENIPC_SBC_GS_PATH/package/dvrui/Config.in"
 source "$BR2_EXTERNAL_OPENIPC_SBC_GS_PATH/package/openipc-gs-web/Config.in"
+source "$BR2_EXTERNAL_OPENIPC_SBC_GS_PATH/package/ffmpeg-v4l2request/Config.in"
 
 choice
     prompt "GPIO configuration method"

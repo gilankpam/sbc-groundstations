@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Regenerate the two large, gitignored build inputs for the Orange Pi Zero 2W
-# (H618) board into .opi-artifacts/, which are referenced by
+# Regenerate the large, gitignored kernel build input for the Orange Pi Zero 2W
+# (H618) board into .opi-artifacts/, referenced by
 #   configs/orangepi_zero2w_defconfig   (BR2_LINUX_KERNEL_CUSTOM_TARBALL_LOCATION)
-#   board/orangepi/zero2w/local.mk       (FFMPEG_OVERRIDE_SRCDIR)
 # Run this once before building this board.
 #
 #   1. linux-6.18.35-opi-sunxi.tar.gz  - clean source snapshot of the Armbian-
 #      patched 6.18.35 sunxi kernel (mainline + DE33 + the 0099/0100 video
 #      userpatches + uwe5622 driver + the HDMI/WiFi board DTS).
-#   2. ffmpeg-v4l2request-n7.1/         - jernejsk/FFmpeg @ v4l2-request-n7.1
-#      (ffmpeg 7.1 + the out-of-tree V4L2 Request hwaccel).
+#
+# (ffmpeg is now the standalone package/ffmpeg-v4l2request, downloaded by
+# Buildroot, so it is no longer prepared here.)
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -42,15 +42,6 @@ else
 	COMMIT="$(printf 'opi-zero2w armbian 6.18.35 snapshot\n' | git $SD -C "$WT" commit-tree "$TREE" -p HEAD)"
 	git $SD -C "$WT" archive --format=tar --prefix=linux-6.18.35-opi-sunxi/ "$COMMIT" | gzip -1 > "$TARBALL"
 	echo "  done: $(du -h "$TARBALL" | cut -f1)"
-fi
-
-# --- 2. ffmpeg v4l2-request fork -------------------------------------------
-FFDIR="$ART/ffmpeg-v4l2request-n7.1"
-if [ -f "$FFDIR/configure" ]; then
-	echo "ffmpeg fork exists: $FFDIR (delete to regenerate)"
-else
-	echo "Cloning jernejsk/FFmpeg @ v4l2-request-n7.1 -> $FFDIR ..."
-	git clone --depth 1 --branch v4l2-request-n7.1 https://github.com/jernejsk/FFmpeg.git "$FFDIR"
 fi
 
 echo "OK: artifacts ready in $ART"

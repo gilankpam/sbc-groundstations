@@ -1,0 +1,17 @@
+config BR2_PACKAGE_FFMPEG_V4L2REQUEST
+	bool "ffmpeg-v4l2request"
+	depends on BR2_PACKAGE_HAS_UDEV
+	select BR2_PACKAGE_LIBDRM
+	select BR2_PACKAGE_ZLIB
+	help
+	  FFmpeg 7.1 (jernejsk/FFmpeg @ v4l2-request-n7.1) with the out-of-tree
+	  V4L2 Request API hwaccel for Cedrus (Allwinner H618) hardware HEVC
+	  decode. Carries the prefer-linear-NV12 capture-format patch so the
+	  decoder exports frames the H618 DE33 display planes can scan out.
+
+	  Replaces Buildroot's core ffmpeg package (6.1.3, no
+	  --enable-v4l2-request). Nothing else in this tree depends on ffmpeg;
+	  it only stages libav* for the externally-built wfbvid player and
+	  provides the ffmpeg CLI used by the smoke tests.
+
+	  https://github.com/jernejsk/FFmpeg/tree/v4l2-request-n7.1
