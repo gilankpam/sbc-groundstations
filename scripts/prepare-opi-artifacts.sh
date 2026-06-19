@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# Regenerate the large, gitignored kernel build input for the Orange Pi Zero 2W
-# (H618) board into .opi-artifacts/, referenced by
-#   configs/orangepi_zero2w_defconfig   (BR2_LINUX_KERNEL_CUSTOM_TARBALL_LOCATION)
-# Run this once before building this board.
+# Regenerate the Orange Pi Zero 2W (H618) kernel SOURCE tarball into .opi-artifacts/.
+# The tarball is hosted as a GitHub RELEASE ASSET and downloaded at build time by
+#   configs/orangepi_zero2w_defconfig  (BR2_LINUX_KERNEL_CUSTOM_TARBALL_LOCATION ->
+#   .../releases/download/opi-zero2w-kernel-6.18.35/linux-6.18.35-opi-sunxi.tar.gz)
+# You only need this to (re)generate the tarball; then publish it:
+#   gh release upload opi-zero2w-kernel-6.18.35 \
+#       .opi-artifacts/linux-6.18.35-opi-sunxi.tar.gz --clobber --repo gilankpam/sbc-groundstations
 #
 #   1. linux-6.18.35-opi-sunxi.tar.gz  - clean source snapshot of the Armbian-
 #      patched 6.18.35 sunxi kernel (mainline + DE33 + the 0099/0100 video
