@@ -57,11 +57,11 @@ BR2_PACKAGE_WIRELESS_REGDB=y
 BR2_PACKAGE_WIFIBROADCAST_NG=y
 BR2_PACKAGE_WFB_SERVER=y
 BR2_PACKAGE_RTL8812AU=y
-# rtl88x2eu/cu fail on kernel 6.18 (their bundled hmac_sha256 conflicts with the
-# kernel's new built-in). Re-enable once patched for 6.18. 8812au is what the
-# reference board's wfb adapter uses (88XXau_wfb), and it builds clean.
-# BR2_PACKAGE_RTL88X2EU=y
-# BR2_PACKAGE_RTL88X2CU=y
+# rtl88x2eu/cu build clean on kernel 6.18 now that their bundled SHA256 APIs are
+# rtw_-prefixed (6.18 added a built-in hmac_sha256 to lib/crypto that the old
+# name collides with). Both carry the rename upstream in their pinned forks.
+BR2_PACKAGE_RTL88X2EU=y
+BR2_PACKAGE_RTL88X2CU=y
 BR2_PACKAGE_KMOD_TOOLS=y
 BR2_PACKAGE_UTIL_LINUX_AGETTY=y
 BR2_TARGET_ROOTFS_SQUASHFS=y
