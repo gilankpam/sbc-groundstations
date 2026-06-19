@@ -1,0 +1,32 @@
+From: H618 video enablement <noreply@local>
+Date: Tue, 17 Jun 2026 00:00:00 +0000
+Subject: [PATCH] media: cedrus: drop tiled NV12_32L32 output so linear NV12 is used
+
+The DE33 (H616/H618) display-engine VI plane can only scan out LINEAR
+framebuffers (no Allwinner-tiled support in the mixer; only the old DE1
+frontend could detile). ffmpeg/gstreamer v4l2request prefer the tiled
+NV12_32L32 capture format, which then fails to commit on the linear-only
+overlay plane. Cedrus already supports linear output (UNTILED capability),
+so remove the tiled format from the capture list to force linear NV12 and
+enable true zero-copy direct-to-plane video.
+
+Signed-off-by: H618 video enablement <noreply@local>
+---
+ drivers/staging/media/sunxi/cedrus/cedrus_video.c | 4 ----
+ 1 file changed, 4 deletions(-)
+
+diff --git a/drivers/staging/media/sunxi/cedrus/cedrus_video.c b/drivers/staging/media/sunxi/cedrus/cedrus_video.c
+--- a/drivers/staging/media/sunxi/cedrus/cedrus_video.c
++++ b/drivers/staging/media/sunxi/cedrus/cedrus_video.c
+@@ -75,10 +75,6 @@
+ 		.pixelformat	= V4L2_PIX_FMT_NV12,
+ 		.directions	= CEDRUS_DECODE_DST,
+ 		.capabilities	= CEDRUS_CAPABILITY_UNTILED,
+ 	},
+-	{
+-		.pixelformat	= V4L2_PIX_FMT_NV12_32L32,
+-		.directions	= CEDRUS_DECODE_DST,
+-	},
+ 	{
+ 		.pixelformat	= V4L2_PIX_FMT_NV21,
+ 		.directions	= CEDRUS_DECODE_DST,

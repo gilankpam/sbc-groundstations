@@ -1,0 +1,80 @@
+# Curated kernel patch subset for Orange Pi Zero 2W (H618), mainline 6.18.35.
+# Order is application order (preserved as numbered files by extract-kernel-patches.sh).
+# Sources, relative to the Armbian build tree ($ARMBIAN_BUILD):
+#   series: patch/kernel/archive/sunxi-6.18/<path>
+#   misc:   patch/misc/wireless-uwe5622/<file>
+#   user:   userpatches/kernel/archive/sunxi-6.18/<file>
+#   gen:    synthesized patch
+#
+# --- DE33 display core (sun4i -> DE33 refactor + H616 HDMI PHY + display-pipeline DT) ---
+series: patches.drm/0001-drm-sun4i-mixer-Fix-up-DE33-channel-macros.patch
+series: patches.drm/0002-drm-sun4i-mixer-Remove-ccsc-cfg-for-DE3.patch
+series: patches.drm/0003-drm-sun4i-de2-Initialize-layer-fields-earlier.patch
+series: patches.drm/0004-drm-sun4i-ui_layer-Move-check-from-update-to-check-c.patch
+series: patches.drm/0005-drm-sun4i-vi_layer-Move-check-from-update-to-check-c.patch
+series: patches.drm/0006-drm-sun4i-layers-Make-atomic-commit-functions-void.patch
+series: patches.drm/0007-drm-sun4i-Move-blender-config-from-layers-to-mixer.patch
+series: patches.drm/0008-drm-sun4i-ui-layer-Write-attributes-in-one-go.patch
+series: patches.drm/0009-drm-sun4i-vi-layer-Write-attributes-in-one-go.patch
+series: patches.drm/0010-drm-sun4i-mixer-Move-layer-enabling-to-atomic_update.patch
+series: patches.drm/0011-drm-sun4i-de2-de3-Simplify-CSC-config-interface.patch
+series: patches.drm/0012-drm-sun4i-csc-Simplify-arguments-with-taking-plane-s.patch
+series: patches.drm/0013-drm-sun4i-de2-de3-Move-plane-type-determination-to-m.patch
+series: patches.drm/0014-drm-sun4i-ui_layer-Change-index-meaning.patch
+series: patches.drm/0015-drm-sun4i-layer-move-num-of-planes-calc-out-of-layer.patch
+series: patches.drm/0016-drm-sun4i-ui_layer-use-layer-struct-instead-of-multi.patch
+series: patches.drm/0017-drm-sun4i-vi_layer-use-layer-struct-instead-of-multi.patch
+series: patches.drm/0018-drm-sun4i-ui_scaler-use-layer-instead-of-mixer-for-a.patch
+series: patches.drm/0019-drm-sun4i-vi_scaler-use-layer-instead-of-mixer-for-a.patch
+series: patches.drm/0020-drm-sun4i-layers-Make-regmap-for-layers-configurable.patch
+series: patches.drm/0021-drm-sun4i-csc-use-layer-arg-instead-of-mixer.patch
+series: patches.drm/0022-drm-sun4i-layers-add-physical-index-arg.patch
+series: patches.drm/0023-drm-sun4i-vi_scaler-Update-DE33-base-calculation.patch
+series: patches.drm/0024-drm-sun4i-mixer-Convert-heuristics-to-quirk.patch
+series: patches.drm/0025-drm-sun4i-ui_scaler-drop-sanity-checks.patch
+series: patches.drm/0026-drm-sun4i-mixer-Add-quirk-for-number-of-VI-scalers.patch
+series: patches.drm/0027-drm-sun4i-mixer-split-out-layer-config.patch
+series: patches.drm/0028-drm-sun4i-layer-replace-mixer-with-layer-struct.patch
+series: patches.drm/0029-drm-sun4i-vi_scaler-Find-mixer-from-crtc.patch
+series: patches.drm/0030-drm-sun4i-Nuke-mixer-pointer-from-layer-code.patch
+series: patches.drm/0031-drm-sun4i-Add-support-for-DE33-CSC.patch
+series: patches.drm/0032-drm-sun4i-vi_layer-Limit-formats-for-DE33.patch
+series: patches.drm/0033-clk-sunxi-ng-de2-Export-register-regmap-for-DE33.patch
+series: patches.drm/0034-dt-bindings-display-allwinner-Add-DE33-planes.patch
+series: patches.drm/0035-drm-sun4i-Add-planes-driver.patch
+series: patches.drm/0036-dt-bindings-display-allwinner-Update-H616-DE33-bindi.patch
+series: patches.drm/0037-drm-sun4i-switch-DE33-to-new-bindings.patch
+series: patches.drm/0038-drm-sun4i-Add-H616-TCON-TV-support.patch
+series: patches.drm/0039-srm-sun4i-Add-support-for-H616-HDMI-PHY.patch
+series: patches.drm/0040-drm-sun4i-Add-compatible-for-H616-display-engine.patch
+series: patches.drm/0041-arm64-dts-allwinner-h616-Add-display-pipeline.patch
+series: patches.drm/0042-arm64-dts-allwinner-h616-Enable-HDMI-on-several-boar.patch
+series: patches.drm/0043-T95-broken-CD.patch
+#
+# --- Cedrus / media ---
+series: patches.media/media-cedrus-Don-t-CPU-map-source-buffers.patch
+series: patches.media/media-Add-NV12-and-P010-AFBC-compressed-formats.patch
+series: patches.media/media-cedrus-add-format-filtering-based-on-depth-and-src-format.patch
+series: patches.media/media-cedrus-Implement-AFBC-YUV420-formats-for-H265.patch
+series: patches.media/media-cedrus-Increase-H6-clock-rate.patch
+series: patches.media/dma-sun6i-dma-add-sun50i-h616-support.patch
+#
+# --- Orange Pi Zero 2W DTS tweak ---
+series: patches.armbian/0302-arm64-dts-sun50i-h618-orangepi-zero2w-add-emac-sound.patch
+#
+# --- UWE5622 WiFi/BT driver (version-gated set for 6.18.x) ---
+misc: uwe5622-allwinner-v6.3.patch
+misc: uwe5622-allwinner-bugfix-v6.3.patch
+misc: uwe5622-allwinner-v6.3-compilation-fix.patch
+misc: uwe5622-v6.1.patch
+misc: uwe5622-park-link-v6.1-post.patch
+misc: uwe5622-v6.4-post.patch
+misc: uwe5622-v6.6-fix-tty-sdio.patch
+misc: uwe5622-warnings.patch
+gen: uwe5622-wireless-makefile
+#
+# --- Operator NV12 userpatches (apply last) ---
+user: 0099-de33-enable-nv12-vi-plane.patch
+user: 0100-cedrus-prefer-linear-nv12.patch
+#
+# --- Dependency-closure prerequisites added empirically in Task 2 appear below ---
