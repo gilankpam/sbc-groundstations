@@ -1,0 +1,25 @@
+diff --git a/libavcodec/v4l2_request_probe.c b/libavcodec/v4l2_request_probe.c
+index b3b1af3..3f7e159 100644
+--- a/libavcodec/v4l2_request_probe.c
++++ b/libavcodec/v4l2_request_probe.c
+@@ -221,6 +221,20 @@ static int v4l2_request_select_capture_format(AVCodecContext *avctx)
+                   format.fmt.pix_mp.pixelformat :
+                   format.fmt.pix.pixelformat;
+ 
++    // Prefer our own preference order (linear NV12 first) over the driver's
++    // default: newer Cedrus reports an AFBC/tiled format as default/first, which
++    // no display plane on this H618 (DE33) can scan out. Pick the first format
++    // from our list that the driver actually offers.
++    for (int i = 0; i < FF_ARRAY_ELEMS(v4l2_request_capture_pixelformats); i++) {
++        uint32_t want = v4l2_request_capture_pixelformats[i].pixelformat;
++        struct v4l2_fmtdesc fd = { .type = type };
++        while (ioctl(ctx->video_fd, VIDIOC_ENUM_FMT, &fd) >= 0) {
++            if (fd.pixelformat == want)
++                return v4l2_request_set_format(avctx, type, want, 0);
++            fd.index++;
++        }
++    }
++
+     // Use the driver preferred format when it is supported
+     for (int i = 0; i < FF_ARRAY_ELEMS(v4l2_request_capture_pixelformats); i++) {
+         if (pixelformat == v4l2_request_capture_pixelformats[i].pixelformat)

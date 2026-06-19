@@ -1,0 +1,17 @@
+config BR2_PACKAGE_CITRUSPILOT
+	bool "citruspilot"
+	depends on BR2_PACKAGE_HAS_UDEV
+	select BR2_PACKAGE_FFMPEG_V4L2REQUEST
+	select BR2_PACKAGE_LIBDRM
+	help
+	  Low-latency FPV video player for the Orange Pi Zero 2W (Allwinner
+	  H618): take the drone's H.265 off the wfb-ng link (de-FEC'd RTP on a
+	  local UDP port), hardware-decode on Cedrus, and scan direct-to-plane
+	  on the DE33 display engine. The sunxi analog of PixelPilot_rk.
+
+	  Player only -- it consumes the RTP that an external wfb_rx forwards
+	  to udp:5600. Requires the v4l2request-patched ffmpeg
+	  (ffmpeg-v4l2request) and the patched mainline kernel (NV12 on the
+	  DE33 VI plane).
+
+	  https://github.com/gilankpam/citruspilot

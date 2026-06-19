@@ -43,3 +43,7 @@ define LIBCLC_DELETE_TARGET
 	rm -rf $(TARGET_DIR)/usr/share/clc
 endef
 LIBCLC_POST_INSTALL_TARGET_HOOKS += LIBCLC_DELETE_TARGET
+
+# ffmpeg with the V4L2 Request hwaccel (Cedrus) is now the standalone
+# package/ffmpeg-v4l2request (jernejsk 7.1 fork, downloaded + patched by
+# Buildroot's normal package machinery), replacing the OVERRIDE_SRCDIR setup.

@@ -101,7 +101,11 @@ build_project() {
     if [ $TARGET = "all" ]
     then
         cd $OUTPUT_DIR/$DEFCONFIG/images
-        cp u-boot-rockchip.bin u-boot.bin
+        if [ -f u-boot-rockchip.bin ]; then
+            cp u-boot-rockchip.bin u-boot.bin
+        elif [ -f u-boot-sunxi-with-spl.bin ]; then
+            cp u-boot-sunxi-with-spl.bin u-boot.bin
+        fi
         for file in sdcard.img u-boot.bin emmc_bootloader.img rootfs.squashfs  ; do
         if [ -f "$file" ]; then
             cp "$file" "$(basename $DEFCONFIG _defconfig)_${file}"

@@ -1,0 +1,17 @@
+#!/bin/sh
+# Force-load the onboard UWE5622 WiFi driver (it does not autoload via udev) so
+# wlan0 exists before the network/hotspot comes up in S40network. BusyBox init
+# does not process /etc/modules-load.d (that is a systemd path).
+case "$1" in
+	start)
+		printf 'Loading onboard WiFi (sprdwl_ng)... '
+		modprobe sprdwl_ng 2>/dev/null
+		# Wait up to 10s for the chip+firmware to bring up wlan0.
+		i=0
+		while [ $i -lt 10 ]; do
+			[ -d /sys/class/net/wlan0 ] && break
+			sleep 1; i=$((i+1))
+		done
+		[ -d /sys/class/net/wlan0 ] && echo "wlan0 up" || echo "no wlan0 (check dmesg)"
+		;;
+esac
