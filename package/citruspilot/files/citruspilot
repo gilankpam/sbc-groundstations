@@ -1,0 +1,15 @@
+# citruspilot launch env (sourced by /usr/bin/citruspilot.sh).
+#
+# citrusplay is player-only: it listens on a UDP port for the de-FEC'd H.265
+# RTP that this board's wfb gs_video forwards to 127.0.0.1:5600, HW-decodes on
+# Cedrus, and scans direct-to-plane on the DE33. It picks the monitor's
+# preferred DRM mode automatically; there is no scaling (DE33 VI plane is 1:1),
+# so drive HDMI at the stream's resolution to avoid black padding.
+
+# HUD overlay: 1 = on (default), 0 = off.
+CITRUSPLAY_OSD=1
+# OSD glyph scale (default 2).
+CITRUSPLAY_OSD_SCALE=2
+
+# Only --port is a CLI flag; everything else is a CITRUSPLAY_* env knob above.
+CITRUSPLAY_ARGS="--port 5600"
