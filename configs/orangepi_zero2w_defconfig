@@ -92,3 +92,7 @@ BR2_PACKAGE_HOST_SWIG=y
 # its patches do not apply to 7.1). Stages libav* for the wfbvid player + the
 # ffmpeg CLI for smoke tests; carries the prefer-linear-NV12 capture patch.
 BR2_PACKAGE_FFMPEG_V4L2REQUEST=y
+# citruspilot: the sunxi/Cedrus FPV player (RTP -> HW decode -> DE33 plane).
+# Listens on udp:5600 where wfb gs_video forwards the de-FEC'd H.265; ships an
+# S99 launch chain. orangepi-only (no other defconfig enables it).
+BR2_PACKAGE_CITRUSPILOT=y

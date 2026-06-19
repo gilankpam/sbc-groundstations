@@ -8,7 +8,7 @@
 -commit = os.environ.get('COMMIT')
 -install_data_files = not bool(os.environ.get('OMIT_DATA_FILES'))
 +version = '25.5.1'
-+commit = 'fe9ca01b6fa6bd7eb3a8740eb234cff2eca3b48e'
++commit = 'e8033cf9cf5a2081447ae45bf441bc68c28a26da'
 +install_data_files = False
  
  assert version and commit
