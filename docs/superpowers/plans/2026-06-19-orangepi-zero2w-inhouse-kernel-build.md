@@ -4,7 +4,7 @@
 
 **Goal:** Build the Orange Pi Zero 2W kernel entirely inside Buildroot — pristine mainline 6.18.35 from kernel.org + a curated in-repo patch subset + a trimmed config — eliminating the external Armbian-tree dependency and the 350 MB `.opi-artifacts` tarball.
 
-**Architecture:** Swap `BR2_LINUX_KERNEL_CUSTOM_TARBALL` for `BR2_LINUX_KERNEL_CUSTOM_VERSION="6.18.35"` + `BR2_GLOBAL_PATCH_DIR`. A manifest-driven extraction script copies a curated subset of Armbian's `sunxi-6.18` series (DE33 display, Cedrus, DTS tweak, UWE5622, the NV12 userpatches) into the repo as numbered patches. The dependency closure of that subset is grown empirically until the kernel builds, then proven on hardware; the config is then trimmed to what the board actually loads.
+**Architecture:** Swap `BR2_LINUX_KERNEL_CUSTOM_TARBALL` for `BR2_LINUX_KERNEL_CUSTOM_VERSION=y`/`..._VALUE="6.18.35"` + `BR2_GLOBAL_PATCH_DIR`. A manifest-driven extraction script copies a curated subset of Armbian's `sunxi-6.18` series (DE33 display, Cedrus, DTS tweak, UWE5622, the NV12 userpatches) into the repo as numbered patches. The dependency closure of that subset is grown empirically until the kernel builds, then proven on hardware; the config is then trimmed to what the board actually loads.
 
 **Tech Stack:** Buildroot 2025.08.1, Linux 6.18.35 (aarch64, sunxi64/H618), GNU `patch`/`git`, Bash. Verification on hardware over SSH (`modetest`, `iw`, `dmesg`).
 
@@ -265,7 +265,8 @@ BR2_LINUX_KERNEL_CUSTOM_TARBALL_LOCATION="file://${BR2_EXTERNAL_OPENIPC_SBC_GS_P
 with:
 
 ```
-BR2_LINUX_KERNEL_CUSTOM_VERSION="6.18.35"
+BR2_LINUX_KERNEL_CUSTOM_VERSION=y
+BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE="6.18.35"
 BR2_GLOBAL_PATCH_DIR="${BR2_EXTERNAL_OPENIPC_SBC_GS_PATH}/board/orangepi/zero2w/patches"
 ```
 

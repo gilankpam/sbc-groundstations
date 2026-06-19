@@ -1,0 +1,24 @@
+From: H618 video enablement <noreply@local>
+Subject: [PATCH] drm/sun4i: vi_layer: re-enable NV12/YUV on DE33 VI plane
+
+patches.drm limits the DE33 VI layer to RGB (chroma upscaling unsupported).
+For direct-to-plane video at native resolution the scaler is bypassed and
+DE33 channel CSC is implemented, so re-advertise the common HW-decoder
+output formats for zero-copy Cedrus NV12 scanout. Rebased onto the current
+patches.drm DE33 format array.
+---
+--- a/drivers/gpu/drm/sun4i/sun8i_vi_layer.c
++++ b/drivers/gpu/drm/sun4i/sun8i_vi_layer.c
+@@ -432,6 +432,12 @@
+ 	DRM_FORMAT_RGBX8888,
+ 	DRM_FORMAT_XBGR8888,
+ 	DRM_FORMAT_XRGB8888,
++	DRM_FORMAT_NV12,
++	DRM_FORMAT_NV21,
++	DRM_FORMAT_YUV420,
++	DRM_FORMAT_YVU420,
++	DRM_FORMAT_YUYV,
++	DRM_FORMAT_UYVY,
+ };
+ 
+ static const uint64_t sun8i_layer_modifiers[] = {

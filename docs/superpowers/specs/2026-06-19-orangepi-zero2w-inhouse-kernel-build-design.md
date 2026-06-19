@@ -89,7 +89,7 @@ Build the kernel entirely within `sbc-groundstations`:
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Source | `BR2_LINUX_KERNEL_CUSTOM_VERSION="6.18.35"` (kernel.org) | pristine mainline, self-contained |
+| Source | `BR2_LINUX_KERNEL_CUSTOM_VERSION=y` + `..._CUSTOM_VERSION_VALUE="6.18.35"` (kernel.org) | pristine mainline, self-contained |
 | Patch representation | **Curated minimal subset**, frozen in-repo + manifest | cleanest end state; matches "required only" intent |
 | Subset derivation | **Empirical** (trial-apply, close gaps via `series.conf`) | the prerequisite tail can't be declared a priori |
 | UWE5622 | **Kernel patch** (version-correct subset), in-tree `=m` | proven on hardware, consistent with subset choice |
@@ -103,7 +103,8 @@ Build the kernel entirely within `sbc-groundstations`:
 ```diff
 - BR2_LINUX_KERNEL_CUSTOM_TARBALL=y
 - BR2_LINUX_KERNEL_CUSTOM_TARBALL_LOCATION="file://${BR2_EXTERNAL_OPENIPC_SBC_GS_PATH}/.opi-artifacts/linux-6.18.35-opi-sunxi.tar.gz"
-+ BR2_LINUX_KERNEL_CUSTOM_VERSION="6.18.35"
++ BR2_LINUX_KERNEL_CUSTOM_VERSION=y
++ BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE="6.18.35"
 + BR2_GLOBAL_PATCH_DIR="${BR2_EXTERNAL_OPENIPC_SBC_GS_PATH}/board/orangepi/zero2w/patches"
 ```
 

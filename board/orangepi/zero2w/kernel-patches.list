@@ -59,22 +59,30 @@ series: patches.media/media-cedrus-Implement-AFBC-YUV420-formats-for-H265.patch
 series: patches.media/media-cedrus-Increase-H6-clock-rate.patch
 series: patches.media/dma-sun6i-dma-add-sun50i-h616-support.patch
 #
-# --- Orange Pi Zero 2W DTS tweak ---
-series: patches.armbian/0302-arm64-dts-sun50i-h618-orangepi-zero2w-add-emac-sound.patch
+# --- Orange Pi Zero 2W DTS tweak: DROPPED (not needed) ---
+# patches.armbian/0302-...-add-emac-sound converts ethernet to the Allwinner vendor
+# sunxi-gmac + AC200 EPHY/codec. The Zero 2W has no ethernet port (WiFi-only via
+# uwe5622) and FPV needs no audio; the patch also references a vendor GMAC driver we
+# don't include. Excluded per "required modules only" — mainline's board DTS already
+# provides HDMI display.
 #
-# --- UWE5622 WiFi/BT driver (version-gated set for 6.18.x) ---
-misc: uwe5622-allwinner-v6.3.patch
-misc: uwe5622-allwinner-bugfix-v6.3.patch
-misc: uwe5622-allwinner-v6.3-compilation-fix.patch
-misc: uwe5622-v6.1.patch
-misc: uwe5622-park-link-v6.1-post.patch
-misc: uwe5622-v6.4-post.patch
-misc: uwe5622-v6.6-fix-tty-sdio.patch
-misc: uwe5622-warnings.patch
+# --- UWE5622 WiFi driver — SNAPSHOT the fully-patched driver tree from the Armbian worktree ---
+# Replaying the 18-patch version progression (v6.3 base + v6.9..v6.18 + Fix-missing-prototypes)
+# is fragile on mainline: the shims conflict under patch fuzz (e.g. a hunk re-adds `static` an
+# earlier shim already added). Instead capture the END STATE — the drivers/net/wireless/uwe5622/
+# tree as it exists in the Armbian 6.18.35 worktree (all shims applied, compiles) — as one
+# add-files patch, then wire it into the top-level Kconfig/Makefile. Kernel BT-core hunks are
+# intentionally excluded (no BT use); the driver's own tty-sdio glue lives under uwe5622/ and is
+# kept. Source files only (build artifacts / .orig excluded by the extractor).
+snapshot: drivers/net/wireless/uwe5622
 gen: uwe5622-wireless-makefile
+gen: uwe5622-wireless-kconfig
 #
-# --- Operator NV12 userpatches (apply last) ---
-user: 0099-de33-enable-nv12-vi-plane.patch
-user: 0100-cedrus-prefer-linear-nv12.patch
+# --- Operator NV12 video patches (repo-owned, rebased onto current patches.drm) ---
+# Source: board/orangepi/zero2w/patches-src/ (NOT the Armbian userpatches dir), so the
+# repo is self-contained. Forward-ported from the operator's 0099/0100 to match the
+# current DE33 format array (0099) and cedrus capture-format list (0100).
+local: 0099-de33-enable-nv12-vi-plane.patch
+local: 0100-cedrus-prefer-linear-nv12.patch
 #
 # --- Dependency-closure prerequisites added empirically in Task 2 appear below ---
