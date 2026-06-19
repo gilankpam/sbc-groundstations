@@ -6,6 +6,7 @@ A unified OpenIPC ground station image builder using Buildroot 2.
 - Emax Wyvern-Link
 - Radxa Zero3 (choose one of the above)
 - OpenIPC Bonnet
+- Orange Pi Zero 2W (Allwinner H618)
 
 # Flashing
 
@@ -105,6 +106,31 @@ cd sbc-groundstations
 ```
 
 Refer to Buildroot's documentation for instructions on customizing your build: [Buildroot](https://buildroot.org/downloads/manual/manual.html)
+
+## Building a specific board
+
+`build.sh` defaults to `runcam_wifilink`. Build another board by setting `DEFCONFIG`:
+
+```
+DEFCONFIG=orangepi_zero2w_defconfig ./build.sh
+```
+
+## Orange Pi Zero 2W (Allwinner H618) kernel
+
+Unlike the Rockchip boards (which fetch the `radxa/kernel` source), the Orange Pi Zero 2W
+builds a mainline 6.18.35 sunxi kernel pre-patched by Armbian (DE33 display + Cedrus + the
+UWE5622 WiFi/BT driver + HDMI/WiFi DTS + NV12 video patches). That patched **source** is
+hosted as a release asset and fetched automatically by Buildroot
+(`BR2_LINUX_KERNEL_CUSTOM_TARBALL`), so a fresh clone builds with **no extra prerequisite**.
+
+To regenerate that kernel tarball (only when changing the kernel), point `ARMBIAN_BUILD` at
+an Armbian build tree whose 6.18.35 sunxi worktree has those patches applied, then publish it:
+
+```
+ARMBIAN_BUILD=~/path/to/armbian-build ./scripts/prepare-opi-artifacts.sh
+gh release upload opi-zero2w-kernel-6.18.35 \
+    .opi-artifacts/linux-6.18.35-opi-sunxi.tar.gz --clobber --repo gilankpam/sbc-groundstations
+```
 
 # Custom Build (Nix)
 
