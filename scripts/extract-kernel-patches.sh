@@ -8,7 +8,6 @@ ARMBIAN_BUILD="${ARMBIAN_BUILD:-$HOME/h618-kernel-work/armbian-build}"
 SERIES_DIR="$ARMBIAN_BUILD/patch/kernel/archive/sunxi-6.18"
 MISC_DIR="$ARMBIAN_BUILD/patch/misc/wireless-uwe5622"
 USER_DIR="$ARMBIAN_BUILD/userpatches/kernel/archive/sunxi-6.18"
-WT="$ARMBIAN_BUILD/cache/sources/linux-kernel-worktree/6.18__sunxi64__arm64"
 MANIFEST="$REPO/board/orangepi/zero2w/kernel-patches.list"
 OUT="$REPO/board/orangepi/zero2w/patches/linux"
 
@@ -27,9 +26,20 @@ while IFS= read -r line; do
 		user)   src="$USER_DIR/$ref" ;;
 		gen)
 			if [ "$ref" = "uwe5622-wireless-makefile" ]; then
-				git -C "$WT" -c safe.directory="$WT" diff HEAD -- \
-					drivers/net/wireless/Makefile > "$OUT/${pfx}-uwe5622-wireless-makefile.patch"
-				echo "  $pfx <- gen: uwe5622-wireless-makefile"
+				# Append ONLY the uwe5622 subdir to drivers/net/wireless/Makefile.
+				# Synthesized inline (NOT diffed from the Armbian worktree, whose
+				# Makefile also carries other out-of-tree drivers' harness appends),
+				# so the output is deterministic and scoped to uwe5622 alone.
+				cat > "$OUT/${pfx}-uwe5622-wireless-makefile.patch" <<'PATCH'
+--- a/drivers/net/wireless/Makefile
++++ b/drivers/net/wireless/Makefile
+@@ -23,3 +23,4 @@ obj-$(CONFIG_WLAN_VENDOR_TI) += ti/
+ obj-$(CONFIG_WLAN_VENDOR_ZYDAS) += zydas/
+
+ obj-$(CONFIG_WLAN) += virtual/
++obj-$(CONFIG_SPARD_WLAN_SUPPORT) += uwe5622/
+PATCH
+				echo "  $pfx <- gen: uwe5622-wireless-makefile (synthesized)"
 				continue
 			fi
 			echo "ERROR: unknown gen ref '$ref'"; exit 1 ;;
