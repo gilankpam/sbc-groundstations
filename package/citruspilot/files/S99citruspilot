@@ -9,8 +9,8 @@ test -r /etc/default/citruspilot && . /etc/default/citruspilot
 start() {
 	printf "Starting citruspilot: "
 
-	start-stop-daemon -S -b -q -p /var/run/citruspilot.pid \
-		--exec /usr/bin/citruspilot.sh
+	start-stop-daemon -S -b -m -q -p /var/run/citruspilot.pid \
+		-x /usr/bin/citruspilot.sh
 	[ $? = 0 ] && echo "OK" || echo "FAIL"
 }
 stop() {

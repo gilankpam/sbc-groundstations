@@ -8,8 +8,10 @@
 
 # HUD overlay: 1 = on (default), 0 = off.
 CITRUSPLAY_OSD=1
-# OSD glyph scale (default 2).
-CITRUSPLAY_OSD_SCALE=2
+# OSD glyph scale. Unset (default) = auto, derived from the screen height so the
+# HUD stays a constant fraction of the display (2 at 1080p, 1 at 720p, 4 at 4K).
+# Set a fixed integer here to override the auto-scaling.
+#CITRUSPLAY_OSD_SCALE=2
 
 # Only --port is a CLI flag; everything else is a CITRUSPLAY_* env knob above.
 CITRUSPLAY_ARGS="--port 5600"
