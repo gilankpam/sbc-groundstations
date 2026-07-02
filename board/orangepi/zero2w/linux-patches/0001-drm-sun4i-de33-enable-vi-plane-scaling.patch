@@ -1,0 +1,29 @@
+drm/sun4i: de33: enable VI plane scaling
+
+The DE33 quirks ship scaler_mask=0 ("TODO: All planes support scaling,
+but driver needs improvements"), which makes sun8i_vi_layer_atomic_check()
+reject any non-1:1 commit with ERANGE. The VI (video) path needs no
+improvements: sun8i_vi_scaler.c is fully DE33-aware, and the VSU is
+already enabled at 1:1 for every subsampled (NV12) frame. Enable the VI
+channels (0-2); leave the unverified UI channels (6-8) at 1:1.
+
+Validated on an Orange Pi Zero 2W (H618): NV12 1080p upscale/downscale
+on the HDMI mixer's VI plane, kernel 6.18.35.
+
+--- a/drivers/gpu/drm/sun4i/sun50i_planes.c
++++ b/drivers/gpu/drm/sun4i/sun50i_planes.c
+@@ -172,10 +172,11 @@
+ 	.cfg = {
+ 		.de_type	= SUN8I_MIXER_DE33,
+ 		/*
+-		 * TODO: All planes support scaling, but driver needs
+-		 * improvements to properly support it.
++		 * VI channels (0-2) scale via the DE33 VSU path in
++		 * sun8i_vi_scaler.c (validated on H618). TODO: UI channel
++		 * scaling still needs driver improvements.
+ 		 */
+-		.scaler_mask    = 0,
++		.scaler_mask    = 0x7,
+ 		.scanline_yuv	= 4096,
+ 	},
+ };
