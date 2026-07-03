@@ -12,7 +12,7 @@
 #
 ################################################################################
 
-CITRUSPILOT_VERSION = 5e10f79b16d24b957a19463a5a973e399f99d056
+CITRUSPILOT_VERSION = db9ce2d53cd4d5e2cee2f951806ae5b9426ccd62
 CITRUSPILOT_SITE = https://github.com/gilankpam/citruspilot.git
 CITRUSPILOT_SITE_METHOD = git
 CITRUSPILOT_INSTALL_STAGING = NO
