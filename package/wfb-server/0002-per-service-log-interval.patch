@@ -1,6 +1,6 @@
 --- a/wfb_ng/services.py
 +++ b/wfb_ng/services.py
-@@ -126,7 +126,7 @@
+@@ -132,7 +132,7 @@
                  fec_timeout=cfg.fec_timeout,
                  fec_delay=cfg.fec_delay,
                  link_id=link_id,
@@ -9,8 +9,8 @@
                  rcv_buf_size=settings.common.tx_rcv_buf_size,
                  snd_buf_size=settings.common.rx_snd_buf_size,
                  injection_retries=cfg.injection_retries,
-@@ -171,7 +171,7 @@
-                 key=os.path.join(settings.path.conf_dir, cfg.keypair),
+@@ -177,7 +177,7 @@
+                 key_arg=key_arg(cfg),
                  rcv_buf_size=settings.common.tx_rcv_buf_size,
                  snd_buf_size=settings.common.rx_snd_buf_size,
 -                log_interval=settings.common.log_interval,
@@ -18,8 +18,8 @@
                  link_id=link_id)).split() + (wlans if not is_cluster else [])
  
      df = RXProtocol(ant_sel_f, cmd, '%s rx' % (service_name,)).start()
-@@ -255,7 +255,7 @@
-                    key=os.path.join(settings.path.conf_dir, cfg.keypair),
+@@ -261,7 +261,7 @@
+                    key_arg=key_arg(cfg),
                     rcv_buf_size=settings.common.tx_rcv_buf_size,
                     snd_buf_size=settings.common.rx_snd_buf_size,
 -                   log_interval=settings.common.log_interval,
@@ -27,7 +27,7 @@
                     link_id=link_id)).split() + (wlans if not is_cluster else [])
  
      tx_socket_path = '%s-tx-%s' % (service_name, os.urandom(4).hex())
-@@ -283,7 +283,7 @@
+@@ -289,7 +289,7 @@
                     fec_timeout=cfg.fec_timeout,
                     fec_delay=cfg.fec_delay,
                     link_id=link_id,
@@ -36,8 +36,8 @@
                     rcv_buf_size=settings.common.tx_rcv_buf_size,
                     snd_buf_size=settings.common.rx_snd_buf_size)).split() + wlans
  
-@@ -369,7 +369,7 @@
-                    key=os.path.join(settings.path.conf_dir, cfg.keypair),
+@@ -375,7 +375,7 @@
+                    key_arg=key_arg(cfg),
                     rcv_buf_size=settings.common.tx_rcv_buf_size,
                     snd_buf_size=settings.common.rx_snd_buf_size,
 -                   log_interval=settings.common.log_interval,
@@ -45,7 +45,7 @@
                     link_id=link_id)).split() + (wlans if not is_cluster else [])
  
      tx_socket_path = '%s-tx-%s' % (service_name, os.urandom(4).hex())
-@@ -397,7 +397,7 @@
+@@ -403,7 +403,7 @@
                     fec_timeout=cfg.fec_timeout,
                     fec_delay=cfg.fec_delay,
                     link_id=link_id,
@@ -54,8 +54,8 @@
                     rcv_buf_size=settings.common.tx_rcv_buf_size,
                     snd_buf_size=settings.common.rx_snd_buf_size)).split() + wlans
  
-@@ -488,7 +488,7 @@
-                        key=os.path.join(settings.path.conf_dir, cfg.keypair),
+@@ -494,7 +494,7 @@
+                        key_arg=key_arg(cfg),
                         rcv_buf_size=settings.common.tx_rcv_buf_size,
                         snd_buf_size=settings.common.rx_snd_buf_size,
 -                       log_interval=settings.common.log_interval,
@@ -63,7 +63,7 @@
                         link_id=link_id)).split() + (wlans if not is_cluster else [])
  
          log.msg('%s RX: %s' % (service_name, ' '.join(cmd_rx)))
-@@ -520,7 +520,7 @@
+@@ -526,7 +526,7 @@
                         fec_timeout=cfg.fec_timeout,
                         fec_delay=cfg.fec_delay,
                         link_id=link_id,

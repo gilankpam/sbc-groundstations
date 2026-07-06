@@ -2,7 +2,7 @@
 # RTL88X2EU package (external kernel)
 ################################################################################
 
-RTL88X2EU_VERSION = bc214cb2ee61975731ce9a0394cd8327aaa85ff6
+RTL88X2EU_VERSION = 0bf8557b4eeb0cc29724faa6ae77e8bf7ddbc422
 RTL88X2EU_SITE = https://github.com/gilankpam/rtl88x2eu-20230815.git
 RTL88X2EU_SITE_METHOD = git
 RTL88X2EU_LICENSE = unspecified

@@ -6,7 +6,7 @@
 
 # feat/pixelpilot-managed-service HEAD (after the dynlink package-data fix).
 # Bump this hash to advance the branch.
-FPVD_VERSION = 1050fceb5c0589e7d94ec35135b6208c6375553a
+FPVD_VERSION = 01b7425fe13848f343302c12a10dffa71fd985d3
 FPVD_SITE = https://github.com/gilankpam/fpvd.git
 FPVD_SITE_METHOD = git
 FPVD_SUBDIR = gs

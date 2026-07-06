@@ -6,7 +6,7 @@
 
 # feat/refactor_ui HEAD (gsmenu refactor, PP_SCALE UI scaling).
 # Bump this hash to advance the branch.
-PIXELPILOT_VERSION=49bd932b228aeb7a75675a9e41c34cb6f5dda4c4
+PIXELPILOT_VERSION=7b7f6fc23373104393c40d6b6b8feae274f2411b
 PIXELPILOT_SITE=https://github.com/gilankpam/PixelPilot_rk.git
 PIXELPILOT_SITE_METHOD = git
 PIXELPILOT_GIT_SUBMODULES = YES
