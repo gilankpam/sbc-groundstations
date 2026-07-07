@@ -20,19 +20,23 @@ No WiFi adapter is attached to the PC.
 
 ## Provide secrets (mounted, never baked into the image)
 
+The compose file mounts host `./etc/fpvd` → `/etc/fpvd` and host
+`./etc/gs.key` → `/etc/gs.key`, so the layout is:
+
 ```sh
 cd docker/fpvd
-mkdir -p etc
-cp config.cluster.example.json etc/config.json           # edit router IP, channel, region, linkId
+mkdir -p etc/fpvd
+cp config.cluster.example.json etc/fpvd/config.json      # edit router IP, channel, region, linkId
+cp ~/.ssh/id_router etc/fpvd/id_node                     # SSH key authorized on the router (sshKey path in config)
+chmod 600 etc/fpvd/id_node
 cp ../../package/wifibroadcast-ng/files/gs.key etc/gs.key # must match the drone
-cp ~/.ssh/id_router etc/id_node                           # SSH key authorized on the router
-chmod 600 etc/id_node
 ```
 
-Create these files **before** the first `up` — Docker bind-mounts create a
-directory in their place if the source path is missing.
+The whole `etc/` tree is git-ignored (it holds your keys). Create these
+files **before** the first `up` — Docker bind-mounts create a directory in
+their place if the source path is missing.
 
-Edit `etc/config.json`:
+Edit `etc/fpvd/config.json`:
 - `link.cards[0].host` → the router's IP.
 - `link.cards[0].iface` → the router's monitor-mode interface.
 - `link.channel` / `link.region` / `link.linkId` → match the drone.
@@ -44,7 +48,7 @@ docker compose up --build
 ```
 
 - RTP video: `udp://127.0.0.1:5600` (e.g. `ffplay -fflags nobuffer udp://127.0.0.1:5600`).
-- fpvd API: `curl http://127.0.0.1:8080/config`.
+- fpvd API: `curl http://127.0.0.1:8080/healthz`, `.../gs/status`, `.../gs/config`, `.../gs/nodes`.
 - Logs: `docker compose logs -f`.
 
 ## Notes
@@ -54,6 +58,12 @@ docker compose up --build
   the node's return-frame routing (`derive_server_address` would hand the
   node the container's private IP) and cannot expose the loopback RTP
   stream.
+- **`iw` + `NET_ADMIN` are required even with no local radio.** On startup
+  the engine runs `iw reg set <link.region>` locally to set the GS
+  regulatory domain. If `iw` is missing (or `NET_ADMIN` is not granted)
+  this fails and the engine aborts with
+  `radio_init failed for wlans=[]` — the link never comes up. The image
+  ships `iw`; the compose file grants `NET_ADMIN`.
 - **The build uses the host network** (`build.network: host` in the
   compose file). On hosts where Docker's default bridge can't resolve or
   reach the Debian mirror — e.g. an IPv6-only mirror, or container DNS

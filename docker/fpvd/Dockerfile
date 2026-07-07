@@ -4,7 +4,7 @@
 FROM debian:bookworm AS builder
 
 ARG WFB_NG_REF=2631e0d26fe070341cc945c3d12c85d24ed2e007
-ARG FPVD_REF=98c73b7dc0bd73bdc1f2d067a9569746bbd6beae
+ARG FPVD_REF=cc1f69f2d09a8b699eb8002e9f3353e3655e9f74
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git ca-certificates build-essential g++ make \
@@ -32,7 +32,7 @@ FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 python3-venv \
-        openssh-client iproute2 \
+        openssh-client iproute2 iw \
         libpcap0.8 libsodium23 libevent-2.1-7 libevent-pthreads-2.1-7 \
     && rm -rf /var/lib/apt/lists/*
 

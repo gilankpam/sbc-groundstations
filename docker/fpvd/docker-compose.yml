@@ -20,7 +20,7 @@ services:
       - /dev/net/tun
     volumes:
       # config.json, id_node (SSH key) live here.
-      - ./etc:/etc/fpvd:ro
+      - ./etc/fpvd:/etc/fpvd:ro
       # graph.GS_KEY is hard-coded to /etc/gs.key.
       - ./etc/gs.key:/etc/gs.key:ro
     restart: unless-stopped
