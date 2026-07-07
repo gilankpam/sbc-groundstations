@@ -1,0 +1,26 @@
+services:
+  fpvd:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Build over the host network namespace. On hosts where Docker's
+      # default bridge cannot resolve/reach the Debian mirror (e.g. an
+      # IPv6-only mirror, or container DNS returning no A records), the
+      # apt-get steps otherwise time out. Harmless elsewhere.
+      network: host
+    image: fpvd:local
+    # Host networking is required: derive_server_address must resolve the
+    # PC's real LAN IP for the OpenWRT node's return frames, and the video
+    # leg emits RTP to 127.0.0.1:5600 which only host networking exposes.
+    network_mode: host
+    # The tunnel leg opens /dev/net/tun for the drone return channel.
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun
+    volumes:
+      # config.json, id_node (SSH key) live here.
+      - ./etc:/etc/fpvd:ro
+      # graph.GS_KEY is hard-coded to /etc/gs.key.
+      - ./etc/gs.key:/etc/gs.key:ro
+    restart: unless-stopped
