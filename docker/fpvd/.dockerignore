@@ -1,0 +1,4 @@
+etc/
+*.key
+id_*
+README.md
