@@ -10,7 +10,7 @@
     },
     "cards": "auto",
     "serverAddress": null,
-    "videoEncryption": true
+    "videoEncryption": false
   },
   "wfb": {
     "profile": "gs",

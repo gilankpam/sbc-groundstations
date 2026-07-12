@@ -43,7 +43,7 @@ BR2_PACKAGE_OPENSSH=y
 BR2_PACKAGE_WPA_SUPPLICANT=y
 BR2_PACKAGE_WPA_SUPPLICANT_AP_SUPPORT=y
 BR2_PACKAGE_DNSMASQ=y
-# --- Task 6: wfb FPV link stack (stock wifibroadcast-ng, no fpvd) ---
+# --- wfb FPV link stack: fpvd GS supervisor over wifibroadcast-ng ---
 BR2_PACKAGE_PYTHON3=y
 BR2_PACKAGE_PYTHON3_BZIP2=y
 BR2_PACKAGE_PYTHON3_CURSES=y
@@ -56,7 +56,14 @@ BR2_PACKAGE_PYTHON_PYYAML=y
 BR2_PACKAGE_PYTHON_SERIAL=y
 BR2_PACKAGE_WIRELESS_REGDB=y
 BR2_PACKAGE_WIFIBROADCAST_NG=y
-BR2_PACKAGE_WFB_SERVER=y
+BR2_PACKAGE_WFB_SERVER=n
+# fpvd: GS supervisor — runs the wfb data plane in-process (retires the stock
+# S98wifibroadcast launcher) and serves the GS HTTP API on :8080. On this board
+# the display is owned by citruspilot's own S99 launcher (below), NOT by fpvd, so
+# pixelpilot stays disabled and fpvd's pixelpilot supervision is switched off at
+# build time (see package/fpvd/fpvd.mk).
+BR2_PACKAGE_FPVD=y
+BR2_PACKAGE_PIXELPILOT=n
 BR2_PACKAGE_RTL8812AU=y
 # rtl88x2eu/cu build clean on kernel 6.18 now that their bundled SHA256 APIs are
 # rtw_-prefixed (6.18 added a built-in hmac_sha256 to lib/crypto that the old

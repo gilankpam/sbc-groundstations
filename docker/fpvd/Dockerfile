@@ -4,7 +4,7 @@
 FROM debian:bookworm AS builder
 
 ARG WFB_NG_REF=2631e0d26fe070341cc945c3d12c85d24ed2e007
-ARG FPVD_REF=cc1f69f2d09a8b699eb8002e9f3353e3655e9f74
+ARG FPVD_REF=b8387bcf2d97abc8329e792888dbb8f2b29c3c47
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git ca-certificates build-essential g++ make \
