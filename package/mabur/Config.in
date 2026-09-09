@@ -1,0 +1,23 @@
+config BR2_PACKAGE_MABUR
+	bool "mabur"
+	depends on BR2_INSTALL_LIBSTDCPP
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	select BR2_PACKAGE_DEVOURER
+	select BR2_PACKAGE_LIBUSB
+	select BR2_PACKAGE_ROCKCHIP_MPP
+	select BR2_PACKAGE_LIBDRM
+	help
+	  RTP-free FPV video link, ground station side.
+
+	  maburgs receives and FEC-decodes the air link and publishes whole
+	  access units to a shm ring; maburplay consumes that ring and drives
+	  MPP hardware decode straight to DRM/KMS, with the MSP and GS OSD
+	  layers and the fMP4 DVR on /media/dvr.
+
+	  Replaces wifibroadcast-ng, fpvd, pixelpilot, msposd and
+	  adaptive-link -- do not enable those alongside it.
+
+	  https://github.com/gilankpam/mabur
+
+comment "mabur needs a toolchain w/ C++, threads"
+	depends on !BR2_INSTALL_LIBSTDCPP || !BR2_TOOLCHAIN_HAS_THREADS

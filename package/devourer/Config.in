@@ -1,0 +1,13 @@
+config BR2_PACKAGE_DEVOURER
+	bool
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	select BR2_PACKAGE_LIBUSB
+	help
+	  Userspace Realtek WiFi driver used by mabur to drive the ground
+	  station's cards over libusb.
+
+	  Not selectable on its own: this package only fetches and extracts
+	  the source tree, which mabur's CMake pulls in via add_subdirectory().
+	  Select BR2_PACKAGE_MABUR instead.
+
+	  https://github.com/OpenIPC/devourer
