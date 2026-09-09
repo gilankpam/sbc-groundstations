@@ -24,6 +24,7 @@ jobs:
         platform:
           - radxa_zero3
           - runcam_wifilink
+          - emax_wyvern-link
           - orangepi_zero2w
 
     steps:

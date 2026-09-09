@@ -38,6 +38,7 @@ download_firmware() {
 	else
 		[ -z "$url" ] && url=$(get_system_upgrade || echo "https://github.com/OpenIPC/sbc-groundstations/releases/download/buildroot-snapshot/${defconfig}.tar.gz")
 		echo "Download from $url"
+		command -v curl >/dev/null || die "No curl on this image -- online upgrade is unavailable. Copy the .tar.gz to the DVR partition and use -f instead."
 		[ "$(curl -o /dev/null -s -k -w '%{http_code}\n' "$url")" = "000" ] && die "Check your network!"
 		curl --connect-timeout 30 -s -k -m 120 -L "$url" -s -o - | gzip -d | tar xf - -C /tmp && echo_c 32 "Received and unpacked" || die "Cannot retrieve $url"
 	fi
@@ -84,12 +85,14 @@ do_wipe_overlay() {
 
 free_resources() {
 	echo_c 37 "\nStop services, sync files, free up memory"
-	/etc/init.d/S99pixelpilot stop
-	/etc/init.d/S98adaptive-link stop
-	/etc/init.d/S98msposd stop
-	/etc/init.d/S50crond stop
-	/etc/init.d/S02klogd stop
-	/etc/init.d/S01syslogd stop
+	# Guarded: which of these exist depends on the board's stack. mabur boards
+	# (radxa/runcam/emax) ship S97maburplay + S96maburgs and none of the
+	# pixelpilot ones; bonnet and orangepi are the other way round. maburplay
+	# in particular must go before the rootfs is swapped -- it holds DRM master.
+	for svc in S97maburplay S96maburgs S99pixelpilot S98adaptive-link S98msposd \
+	           S50crond S02klogd S01syslogd; do
+		[ -x "/etc/init.d/$svc" ] && "/etc/init.d/$svc" stop
+	done
 	sleep 1
 
 	sync
