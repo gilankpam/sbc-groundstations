@@ -6,7 +6,7 @@
 
 # gilankpam/mabur master. Bump this hash to advance; keep it in step with the
 # devourer hash in package/devourer/devourer.mk, which it is built against.
-MABUR_VERSION = 7dfce0062c735cf525c58091a5678cde602d89b0
+MABUR_VERSION = 671c8489b5c067f8240a6a6cbd0f59bd2c45b8fb
 MABUR_SITE = https://github.com/gilankpam/mabur.git
 MABUR_SITE_METHOD = git
 MABUR_INSTALL_STAGING = NO
