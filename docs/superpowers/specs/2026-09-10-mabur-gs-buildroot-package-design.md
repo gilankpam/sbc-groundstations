@@ -111,6 +111,17 @@ itself into this build on the next hash bump and silently inflates the binary.
 This is the `DEVOURER_8733B` footgun already recorded in mabur's own build
 scripts.
 
+`-DBUILD_SHARED_LIBS=OFF` is load-bearing. Buildroot's cmake-package passes
+`BUILD_SHARED_LIBS=ON` for anything but a `BR2_STATIC_LIBS` build, and
+devourer's `add_library(devourer ...)` names neither STATIC nor SHARED, so it
+honours that and emits an unversioned `libdevourer.so`. `package/devourer`
+installs nothing to the target by design, so maburgs linked against a library
+that was never shipped and died at startup with `error while loading shared
+libraries: libdevourer.so`. Every library mabur declares itself is explicitly
+STATIC, so forcing this off touches only devourer — and links it in exactly as
+mabur's own cross build does. Our `-D` follows Buildroot's on the command line,
+so it wins.
+
 `bench/encosd` is *not* skipped by `MABUR_BUILD_LINKBENCH=OFF` — mabur's
 top-level CMake gates it on `MABUR_BUILD_GS`, and its own CMakeLists only
 returns early when `MABUR_PLAYER_HW` is off, which it is not here. So it gets
@@ -380,9 +391,20 @@ stack.
 - The same for `runcam_wifilink_defconfig` and `emax_wyvern-link_defconfig`.
 - Inspect `output/<board>/target/` for the install layout in the table above:
   both binaries, all three assets, both init scripts, both TOMLs, `maburtop`.
-- Confirm `maburplay` is dynamically linked against `libdrm.so.2` and
-  `librockchip_mpp` resolves, e.g. with `readelf -d`. This is the check that
-  the link shim did what the comment claims.
+- Resolve **every** `NEEDED` entry of **both** binaries against the rootfs, not
+  just maburplay's:
+
+  ```
+  readelf -d target/usr/local/bin/{maburgs,maburplay} | grep NEEDED
+  ```
+
+  Checking only maburplay is what let the missing `libdevourer.so` reach
+  hardware: the shim comment was about libdrm/mpp, so that is all that got
+  verified, while maburgs was the binary that broke. Better still, sweep the
+  whole rootfs — every ELF under `bin`, `sbin` and `lib` — for `NEEDED` entries
+  with no matching `*.so*` in `target/{lib,usr/lib}`. That sweep is cheap and
+  is the natural guard for a change that removes ~50 packages; it must report
+  zero.
 - Confirm the per-board `/etc/maburplay.toml` in the target tree is the board
   overlay's copy and not the package default, and that emax's does not claim
   pin 32.

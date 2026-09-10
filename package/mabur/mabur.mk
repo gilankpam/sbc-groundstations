@@ -81,7 +81,19 @@ MABUR_PRE_CONFIGURE_HOOKS += MABUR_STAGE_LIBS
 # This is the override path that file documents in its own comments.
 MABUR_GPIO_COMPAT_FLAG = -include $(MABUR_PKGDIR)/gpio_v2_compat.h
 
+# -DBUILD_SHARED_LIBS=OFF is load-bearing, not tidiness. Buildroot's
+# cmake-package passes BUILD_SHARED_LIBS=ON (anything but a BR2_STATIC_LIBS
+# build), and devourer's `add_library(devourer ...)` names neither STATIC nor
+# SHARED, so it honours that and produces an unversioned libdevourer.so.
+# package/devourer installs nothing to the target by design -- it exists only
+# to put the source on disk -- so maburgs then died at startup with
+#   error while loading shared libraries: libdevourer.so
+# Every library mabur declares itself is explicitly STATIC, so forcing this off
+# only affects devourer, and it links it into maburgs exactly as mabur's own
+# cross build does. Our -D comes after Buildroot's on the command line, so it
+# wins. Re-verify with `readelf -d` after any devourer bump.
 MABUR_CONF_OPTS = \
+	-DBUILD_SHARED_LIBS=OFF \
 	-DCMAKE_C_FLAGS="$(TARGET_CFLAGS) $(MABUR_GPIO_COMPAT_FLAG)" \
 	-DCMAKE_CXX_FLAGS="$(TARGET_CXXFLAGS) $(MABUR_GPIO_COMPAT_FLAG)" \
 	-DMABUR_BUILD_DRONE=OFF \
