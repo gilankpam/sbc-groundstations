@@ -122,9 +122,17 @@ MABUR_CONF_OPTS = \
 # blobs: maburplay.toml names font_btfl.mfont and gs_osd.gfont by path, and
 # splash.bin is hardcoded in splash_image.h with no config key.
 #
-# maburtop goes to /usr/bin, not /usr/local/bin: the GS shell's default PATH
-# does not include /usr/local/bin. It imports only the standard library, so
-# python3 + python3-curses is the whole requirement.
+# maburtop and maburcal go to /usr/bin, not /usr/local/bin: the GS shell's
+# default PATH does not include /usr/local/bin. Both import only the standard
+# library, so python3 + python3-curses is the whole requirement -- maburcal
+# needs no curses at all, it is argparse/socket only.
+#
+# maburcal is the TX-power wall calibration kit's entire operator UI, and it
+# has to be on the box: `start`/`status`/`abort` speak UDP to CalControl in
+# maburgs, which binds 127.0.0.1:8400 only, so there is no calibrating this
+# board from anywhere but a shell on it. (`maburcal report <cal.log>` is
+# offline and would run on a laptop, but shipping half the tool is worse than
+# shipping it.)
 define MABUR_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(MABUR_BUILDDIR)/gs/maburgs \
 		$(TARGET_DIR)/usr/local/bin/maburgs
@@ -140,6 +148,8 @@ define MABUR_INSTALL_TARGET_CMDS
 
 	$(INSTALL) -D -m 0755 $(@D)/tools/maburtop.py \
 		$(TARGET_DIR)/usr/bin/maburtop
+	$(INSTALL) -D -m 0755 $(@D)/gs/bundle/maburcal \
+		$(TARGET_DIR)/usr/bin/maburcal
 
 	$(INSTALL) -D -m 0644 $(@D)/gs/bundle/maburgs.default.toml \
 		$(TARGET_DIR)/etc/maburgs.toml
