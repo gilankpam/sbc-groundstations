@@ -164,6 +164,10 @@ overlay_workdir=/overlay/work
 mkdir -p $overlay_rootdir $overlay_workdir
 
 if ! mount -t overlay overlay -o lowerdir=/,upperdir=$overlay_rootdir,workdir=$overlay_workdir /mnt; then
+	# The EXIT trap below still execs /sbin/init, so the box boots -- on the
+	# bare squashfs, with / and therefore /etc read-only. Say so: the symptom
+	# on a running system looks nothing like "the overlay never mounted".
+	echo '<0>overlay: mount failed -- booting READ-ONLY (no /overlay, /etc not writable)' > /dev/kmsg
 	umount /overlay
 	exit 1
 fi
