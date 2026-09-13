@@ -4,9 +4,16 @@
 #
 ################################################################################
 
-# gilankpam/mabur master. Bump this hash to advance; keep it in step with the
-# devourer hash in package/devourer/devourer.mk, which it is built against.
-MABUR_VERSION = 5790043765a30dc060822c0f8685b804e60fa402
+# gilankpam/mabur master, resolved to a hash on every make invocation. Feeding
+# the downloader the hash rather than `master` keeps one dl/ tarball per commit,
+# so new commits actually refetch. package/devourer tracks its own master the
+# same way; nothing pins the two in step any more. The fallback hash is only
+# reached offline; GIT_TERMINAL_PROMPT/timeout stop a dead remote from hanging
+# every make run. Override with `make MABUR_VERSION=<sha-or-tag> mabur-rebuild`.
+MABUR_MASTER_SHA := $(shell GIT_TERMINAL_PROMPT=0 timeout 15 \
+	git ls-remote https://github.com/gilankpam/mabur.git \
+	refs/heads/master 2>/dev/null | cut -f1)
+MABUR_VERSION = $(or $(MABUR_MASTER_SHA),5790043765a30dc060822c0f8685b804e60fa402)
 MABUR_SITE = https://github.com/gilankpam/mabur.git
 MABUR_SITE_METHOD = git
 MABUR_INSTALL_STAGING = NO
