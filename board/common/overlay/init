@@ -93,6 +93,30 @@ then
   rm /overlay/.initshell
 fi
 
+# Config partition. Carved before DVR on purpose: DVR takes the rest of the
+# disk, so anything created after it has nowhere to go. Being the first FAT
+# partition also matters for Windows -- older builds surface only one
+# partition per removable device, and this is the one people are meant to edit.
+#
+# `mkpart primary fat32` stamps the Microsoft-basic-data GPT type GUID, which
+# is what actually makes Windows mount it; the FS label is what
+# /etc/init.d/S00config looks up. 64 MiB with 512-byte clusters is a valid
+# FAT32 (>65525 clusters) and is all the toml files will ever need.
+config_dev=$(blkid  | grep 'LABEL="CONFIG"'| cut -d : -f 1)
+if [ -z $config_dev ]
+then
+  LAST_END=$(parted -s $BOOT_DISK unit MiB print | awk '/^ [0-9]+/ {print $3}' | tr -d 'MiB' | sort -n | tail -1 | cut -d. -f1)
+  START_MB=$(( LAST_END + 20 ))
+  END_MB=$(( START_MB + 64 ))
+  parted --fix -s $BOOT_DISK mkpart primary fat32 "${START_MB}MiB" "${END_MB}MiB"
+  partprobe $BOOT_DISK
+  PART_NUM=$(parted -s $BOOT_DISK print | awk '/^ [0-9]+/ {print $1}' | tail -1)
+  parted -s $BOOT_DISK name $PART_NUM CONFIG
+  NEW_PARTITION="${BOOT_DISK}p${PART_NUM}"
+  mkfs.vfat -F 32 $NEW_PARTITION -n CONFIG
+  config_dev=$(blkid  | grep 'LABEL="CONFIG"'| cut -d : -f 1)
+fi
+
 dvr_dev=$(blkid  | grep 'LABEL="DVR"'| cut -d : -f 1)
 if [ -z $dvr_dev ]
 then
@@ -141,6 +165,11 @@ then
   umount /overlay
   mke2fs -t ext4 -F $overlayfs_dev -L overlayfs
   mount $overlayfs_dev /overlay
+  # The config partition is user-facing state, so a factory reset has to take
+  # it too -- otherwise a toml that stops the box booting survives the one
+  # recovery path there is. /etc/init.d/S00config re-seeds the board defaults
+  # on the way up.
+  [ -n "$config_dev" ] && mkfs.vfat -F 32 $config_dev -n CONFIG
 fi
 
 if [ -n "$GADGET_MODE_GPIO" ]; then

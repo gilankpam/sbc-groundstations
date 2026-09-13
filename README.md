@@ -81,10 +81,33 @@ Once flashed, the Buildroot image can update itself via several ways:
 - Use `./build.sh ssh-flash` to flash a local build to `BR2_BOARD_HOST`. See menuconfig.
 - Use `./build.sh flash` to flash a local build to the eMMC using `rkdeveloptool` (maskrom).
 
+# Configuration
+
+On the mabur boards (RunCam WifiLink, Emax Wyvern-Link, Radxa Zero 3) the
+ground station's settings live on a dedicated 64 MB FAT32 `CONFIG` partition,
+created on first boot:
+
+| File | What it configures |
+|---|---|
+| `maburgs.toml` | `maburgs` — radio, link, stats outputs |
+| `maburplay.toml` | `maburplay` — decoder, screen mode, DVR, OSD, record button |
+
+It is FAT32 with a Microsoft basic-data partition type, so you can pull the SD
+card, put it in a Windows/macOS/Linux machine, and edit the files in any text
+editor. On the board itself the same files are at `/etc/maburgs.toml` and
+`/etc/maburplay.toml`, which are symlinks into `/config`. Reboot, or
+`/etc/init.d/S96maburgs restart` / `/etc/init.d/S97maburplay restart`, to apply.
+
+Deleting a file restores the board's default on the next boot; the pristine
+defaults are kept at `/usr/share/config-defaults/`.
+
 # Factory Reset
 
 - Hold the `Right` button during boot.
 - Run `firstboot`.
+
+This wipes the overlay **and** the `CONFIG` partition, so customised settings
+are lost and the board's defaults are restored.
 
 # Gadget Mode
 

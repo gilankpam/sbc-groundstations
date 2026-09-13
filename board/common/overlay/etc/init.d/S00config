@@ -1,0 +1,60 @@
+#!/bin/sh
+# Mount the CONFIG partition at /config and seed it with the board's defaults.
+#
+# /config is where every user-editable config file lives. The partition is
+# FAT32 with a Microsoft-basic-data GPT type (see the config block in the
+# initramfs-less /init) precisely so it can be edited from a Windows box with
+# the card in a reader -- which is also why the files here are plain,
+# comment-heavy toml rather than anything generated.
+#
+# Runs before everything else (S00) because S96maburgs and S97maburplay read
+# /etc/maburgs.toml and /etc/maburplay.toml, and both of those are symlinks
+# into /config shipped by board/common/overlay.
+#
+# This deliberately runs after pivot_root rather than inside /init: / is the
+# overlay by now, so if the mount fails -- card yanked, FAT trashed by an
+# unclean eject on the PC -- /config stays a writable directory on the overlay,
+# the seeding below still fills it, and the box boots with working configs
+# instead of two dangling symlinks and no ground station.
+
+CONFIG_DIR=/config
+DEFAULTS_DIR=/usr/share/config-defaults
+
+seed_defaults() {
+	[ -d "$DEFAULTS_DIR" ] || return 0
+	for f in "$DEFAULTS_DIR"/*; do
+		[ -f "$f" ] || continue
+		[ -e "$CONFIG_DIR/$(basename "$f")" ] && continue
+		cp "$f" "$CONFIG_DIR/"
+	done
+	sync
+}
+
+case "$1" in
+	start)
+		mkdir -p "$CONFIG_DIR"
+		# head -1: booting from eMMC with an SD card in the slot can turn up
+		# two CONFIG partitions. The one on the boot disk is listed first.
+		dev=$(blkid | grep 'LABEL="CONFIG"' | cut -d : -f 1 | head -1)
+		if [ -z "$dev" ]; then
+			echo "config: no CONFIG partition found, using $CONFIG_DIR on the overlay"
+		# umask=0000 because vfat has no permission bits of its own: without it
+		# every file lands 0755/root and nothing but root can edit them on-box.
+		elif ! mount -t vfat -o umask=0000 "$dev" "$CONFIG_DIR"; then
+			echo "config: mounting $dev on $CONFIG_DIR failed, using the overlay instead"
+		fi
+		seed_defaults
+		;;
+	stop)
+		sync
+		mountpoint -q "$CONFIG_DIR" && umount "$CONFIG_DIR"
+		;;
+	restart)
+		"$0" stop
+		"$0" start
+		;;
+	*)
+		echo "usage: $0 {start|stop|restart}"
+		exit 1
+		;;
+esac

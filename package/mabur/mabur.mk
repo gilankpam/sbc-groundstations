@@ -125,6 +125,20 @@ MABUR_CONF_OPTS = \
 # mabur declares no install() rules -- its own deploy scripts copy artifacts by
 # hand -- so the layout is spelled out here.
 #
+# The two .default.toml files do NOT go to /etc any more. /etc is on the
+# read-only squashfs (writable only through the ext4 overlay, which Windows
+# cannot read), and the point of the config partition is that these two files
+# are editable with the card in a laptop. So they are installed as *defaults*
+# under /usr/share/config-defaults, /etc/maburgs.toml and /etc/maburplay.toml
+# become symlinks into /config, and /etc/init.d/S00config copies any missing
+# default onto the FAT32 CONFIG partition on first boot. A board overriding
+# its defaults now writes to /usr/share/config-defaults/, not /etc -- see
+# board/*/overlay/usr/share/config-defaults/maburplay.toml.
+#
+# The symlinks live here rather than in board/common/overlay because that
+# overlay is shared with the non-mabur boards (bonnet, orangepi), which would
+# otherwise carry two dangling /etc symlinks.
+#
 # The three assets under /usr/local/share/mabur are runtime files, not linked-in
 # blobs: maburplay.toml names font_btfl.mfont and gs_osd.gfont by path, and
 # splash.bin is hardcoded in splash_image.h with no config key.
@@ -159,9 +173,12 @@ define MABUR_INSTALL_TARGET_CMDS
 		$(TARGET_DIR)/usr/bin/maburcal
 
 	$(INSTALL) -D -m 0644 $(@D)/gs/bundle/maburgs.default.toml \
-		$(TARGET_DIR)/etc/maburgs.toml
+		$(TARGET_DIR)/usr/share/config-defaults/maburgs.toml
 	$(INSTALL) -D -m 0644 $(@D)/gs/player/bundle/maburplay.default.toml \
-		$(TARGET_DIR)/etc/maburplay.toml
+		$(TARGET_DIR)/usr/share/config-defaults/maburplay.toml
+
+	ln -sfn /config/maburgs.toml $(TARGET_DIR)/etc/maburgs.toml
+	ln -sfn /config/maburplay.toml $(TARGET_DIR)/etc/maburplay.toml
 endef
 
 # Both wrappers are mabur's own bundled files, installed unmodified.
@@ -169,9 +186,10 @@ endef
 # libusb; that is a no-op here because the mabur boards drop the Realtek kernel
 # drivers entirely, and it is kept because it is upstream's file.
 #
-# The board's own /etc/maburplay.toml comes from its rootfs overlay, which
+# The board's own maburplay default comes from its rootfs overlay, which
 # Buildroot applies after package installation and which therefore wins over
-# the default seeded above. See board/*/overlay/etc/maburplay.toml.
+# the default installed above. See
+# board/*/overlay/usr/share/config-defaults/maburplay.toml.
 define MABUR_INSTALL_INIT_SYSV
 	$(INSTALL) -D -m 0755 $(@D)/gs/bundle/S96maburgs \
 		$(TARGET_DIR)/etc/init.d/S96maburgs

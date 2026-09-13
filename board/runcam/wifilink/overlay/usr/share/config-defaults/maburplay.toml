@@ -1,10 +1,19 @@
-# maburplay, Radxa Zero 3W/3E.
+# maburplay, RunCam WifiLink.
 #
-# Overrides the /etc/maburplay.toml that package/mabur seeds from mabur's
-# maburplay.default.toml: rootfs overlays are applied after package install, so
-# this file wins. Board-specific bits are the [input.rec] GPIO and screen_mode.
+# This is the board's *default* maburplay config, not the live one. It
+# overrides the /usr/share/config-defaults/maburplay.toml that package/mabur
+# installs from mabur's maburplay.default.toml: rootfs overlays are applied
+# after package install, so this file wins. Board-specific bits are the
+# [input.rec] GPIO and screen_mode.
 #
-# Header pin 32 is free here -- the defconfig uses PIN_11 for factory reset and
+# On first boot /etc/init.d/S00config copies this onto the FAT32 CONFIG
+# partition as /config/maburplay.toml, which is what /etc/maburplay.toml
+# symlinks to and what maburplay actually reads. Editing it there -- on the
+# box, or with the card in a Windows machine -- is the supported way to change
+# settings; it is never overwritten again unless the file is deleted or the
+# board is factory reset.
+#
+# Header pin 32 is free here -- the defconfig uses PIN_38 for factory reset and
 # PIN_13 for gadget mode.
 
 ring_path   = "/dev/shm/mabur-au"   # must match maburgs' au_ring.path
