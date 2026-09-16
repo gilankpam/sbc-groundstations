@@ -27,7 +27,7 @@ MABUR_INSTALL_TARGET = YES
 # directly (gs/player/src/rec_button.cpp), deliberately, so mabur links nothing
 # for it. The boards still enable libgpiod-tools for `gpioinfo`, which is how
 # you find the line name for a given header pin.
-MABUR_DEPENDENCIES = devourer libusb rockchip-mpp libdrm
+MABUR_DEPENDENCIES = devourer libusb rockchip-mpp libdrm mesa3d librga
 
 # gs/player/CMakeLists.txt links two libraries by absolute path:
 #
@@ -99,6 +99,10 @@ MABUR_GPIO_COMPAT_FLAG = -include $(MABUR_PKGDIR)/gpio_v2_compat.h
 # only affects devourer, and it links it into maburgs exactly as mabur's own
 # cross build does. Our -D comes after Buildroot's on the command line, so it
 # wins. Re-verify with `readelf -d` after any devourer bump.
+#
+# -DMABUR_PLAYER_GPU=ON: the burned-DVR colortrans stage (gs/player/src/
+# frame_colortrans.cpp) links EGL/GLESv2/gbm/rga from staging; mesa3d and
+# librga are real dependencies again since 2026-09-16 (docs/colortrans.md).
 MABUR_CONF_OPTS = \
 	-DBUILD_SHARED_LIBS=OFF \
 	-DCMAKE_C_FLAGS="$(TARGET_CFLAGS) $(MABUR_GPIO_COMPAT_FLAG)" \
@@ -108,6 +112,7 @@ MABUR_CONF_OPTS = \
 	-DMABUR_BUILD_LINKBENCH=OFF \
 	-DMABUR_BUILD_GS=ON \
 	-DMABUR_PLAYER_HW=ON \
+	-DMABUR_PLAYER_GPU=ON \
 	-DMABUR_MPP_ROOT=$(@D)/br-libs \
 	-DMABUR_DRM_ROOT=$(@D)/br-libs \
 	-DDEVOURER_DIR=$(DEVOURER_SRCDIR) \
