@@ -136,9 +136,12 @@ MABUR_CONF_OPTS = \
 # are editable with the card in a laptop. So they are installed as *defaults*
 # under /usr/share/config-defaults, /etc/maburgs.toml and /etc/maburplay.toml
 # become symlinks into /config, and /etc/init.d/S00config copies any missing
-# default onto the FAT32 CONFIG partition on first boot. A board overriding
-# its defaults now writes to /usr/share/config-defaults/, not /etc -- see
-# board/*/overlay/usr/share/config-defaults/maburplay.toml.
+# default onto the FAT32 CONFIG partition on first boot.
+#
+# Both files are installed verbatim, and nothing overrides them wholesale any
+# more. A board that needs a different default edits the installed file in
+# board/common/post-build-script.sh instead -- see the note above
+# MABUR_INSTALL_INIT_SYSV.
 #
 # The symlinks live here rather than in board/common/overlay because that
 # overlay is shared with the non-mabur boards (bonnet, orangepi), which would
@@ -191,10 +194,13 @@ endef
 # libusb; that is a no-op here because the mabur boards drop the Realtek kernel
 # drivers entirely, and it is kept because it is upstream's file.
 #
-# The board's own maburplay default comes from its rootfs overlay, which
-# Buildroot applies after package installation and which therefore wins over
-# the default installed above. See
-# board/*/overlay/usr/share/config-defaults/maburplay.toml.
+# Per-board maburplay defaults are sed'd onto the installed file by
+# board/common/post-build-script.sh, which runs after both this install and the
+# rootfs overlays. The boards used to ship a whole forked copy of
+# maburplay.default.toml under board/*/overlay/usr/share/config-defaults/, and
+# because MABUR_VERSION tracks upstream master that copy went stale the moment
+# mabur added a key: [colortrans] = true shipped disabled on every image after
+# the GPU colortrans stage landed. Patch the differing lines, never the file.
 define MABUR_INSTALL_INIT_SYSV
 	$(INSTALL) -D -m 0755 $(@D)/gs/bundle/S96maburgs \
 		$(TARGET_DIR)/etc/init.d/S96maburgs
