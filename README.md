@@ -5,7 +5,6 @@ A unified OpenIPC ground station image builder using Buildroot 2.
 - RunCam Wifilink
 - Emax Wyvern-Link
 - Radxa Zero3 (choose one of the above)
-- OpenIPC Bonnet
 - Orange Pi Zero 2W (Allwinner H618)
 
 # Flashing
@@ -76,7 +75,7 @@ Once flashed, the Buildroot image can update itself via several ways:
 
 - Copy the `<vrx name>.tar.gz` package to a FAT-formatted SD card and reboot.
 - Copy the `<vrx name>.tar.gz` package to the `DVR` partition on the SD card and reboot.
-- Copy the `<vrx name>.tar.gz` package to the `DVR` partition on the eMMC. Use `scp`, SMB, or gadget mode and reboot.
+- Copy the `<vrx name>.tar.gz` package to the `DVR` partition on the eMMC. Use `scp` or gadget mode and reboot.
 - Use `sysupgrade -u -r` for an online update. See `sysupgrade --help` for more options.
 - Use `./build.sh ssh-flash` to flash a local build to `BR2_BOARD_HOST`. See menuconfig.
 - Use `./build.sh flash` to flash a local build to the eMMC using `rkdeveloptool` (maskrom).

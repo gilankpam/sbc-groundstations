@@ -1,2 +1,0 @@
-# Runtime secrets / config, mounted into the container — never commit.
-etc/

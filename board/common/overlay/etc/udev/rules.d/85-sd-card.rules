@@ -1,7 +1,5 @@
 SUBSYSTEM=="block", KERNEL=="mmcblk[0-9]", ACTION=="add", \
-  RUN+="/usr/bin/killall -USR1 automount", \
-  RUN+="/bin/sh -c 'echo SDCard inserted > /var/run/pixelpilot.msg'"
+  RUN+="/usr/bin/killall -USR1 automount"
 
 SUBSYSTEM=="block", KERNEL=="mmcblk[0-9]", ACTION=="remove", \
-  RUN+="/usr/bin/killall -USR1 automount", \
-  RUN+="/bin/sh -c 'echo SDCard removed > /var/run/pixelpilot.msg'"
+  RUN+="/usr/bin/killall -USR1 automount"

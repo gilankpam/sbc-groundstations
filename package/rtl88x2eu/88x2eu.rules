@@ -1,1 +1,0 @@
-SUBSYSTEM=="net", ACTION=="add", ENV{ID_USB_DRIVER}=="rtl88x2eu", NAME="%E{ID_NET_NAME_MAC}"
