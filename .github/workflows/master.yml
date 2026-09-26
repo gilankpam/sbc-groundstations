@@ -13,6 +13,12 @@ on:
 env:
   TAG_NAME: latest
 
+# A newer push to the same PR supersedes the running build. Master and
+# tag builds are never cancelled, so every release still gets published.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   buildroot:
     name: Build Firmware
@@ -37,7 +43,6 @@ jobs:
       - name: Prepare firmware
         run: |
           echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf
-          echo "CACHE_DATE=$(date +%m)" >> $GITHUB_ENV
           sudo apt update
           sudo apt install -y cpio rsync bc qemu-user-static binfmt-support
           curl -fsSL https://deb.nodesource.com/setup_24.x | sudo bash -
@@ -46,11 +51,14 @@ jobs:
           sudo chown $USER:$USER /mnt/workspace
           rsync -a "$GITHUB_WORKSPACE/" /mnt/workspace/
 
-      - name: Cache ccache
-        uses: actions/cache@v5
+      # Unique key per run: actions/cache never re-saves on an exact key
+      # hit, so a fixed key freezes the cache at its first save. Restore
+      # the newest one by prefix and save a fresh one after every build.
+      - name: Restore ccache
+        uses: actions/cache/restore@v5
         with:
           path: /tmp/ccache
-          key: ${{ matrix.platform }}-ccache-${{ env.CACHE_DATE }}
+          key: ${{ matrix.platform }}-ccache-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             ${{ matrix.platform }}-ccache-
 
@@ -64,9 +72,25 @@ jobs:
 
           mkdir -p /tmp/ccache
           export BR2_CCACHE_DIR=/tmp/ccache
+          # Three boards share the 10 GB repo cache quota
+          export CCACHE_MAXSIZE=3G
 
           NAME=${{ matrix.platform }}
           DEFCONFIG=${NAME}_defconfig bash build.sh
+
+      - name: ccache stats
+        if: always()
+        working-directory: /mnt/workspace
+        run: BR_CACHE_DIR=/tmp/ccache output/${{ matrix.platform }}_defconfig/host/bin/ccache -s || true
+
+      # Save even when the build fails or is cancelled: a half-finished
+      # LLVM compile is still worth keeping for the next run.
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v5
+        with:
+          path: /tmp/ccache
+          key: ${{ matrix.platform }}-ccache-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload images to workflow artifacts
         uses: actions/upload-artifact@v6
