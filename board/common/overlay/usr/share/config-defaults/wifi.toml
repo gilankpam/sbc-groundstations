@@ -1,0 +1,38 @@
+# Onboard WiFi (wlan0) of the ground station.
+#
+# Edit this file on the CONFIG partition from any PC, or on the box itself at
+# /config/wifi.toml. Apply with a reboot or `/etc/init.d/S39wifi restart`.
+# Delete it to get these defaults back on the next boot.
+#
+# A value that doesn't make sense (password too short, unknown channel, ...)
+# is replaced by its default below and logged to the console, so a typo never
+# leaves the box without WiFi.
+
+# What wlan0 does:
+#   "ap"     - run its own hotspot, configured in [ap] below
+#   "client" - join an existing WiFi network, configured in [client] below.
+#              If no address is obtained within fallback_timeout seconds
+#              (wrong password, router off, out of range) it falls back to
+#              the [ap] hotspot so the box stays reachable.
+#   "off"    - leave wlan0 down
+mode = "ap"
+
+[ap]
+ssid = "OpenIPC GS"
+# WPA2 passphrase, 8 to 63 characters.
+password = "12345678"
+# 2.4 GHz channel, 1 to 13.
+channel = 6
+# Address of the ground station on the hotspot.
+address = "10.18.0.1"
+netmask = "255.255.255.0"
+# Addresses handed out to phones/laptops that join the hotspot.
+dhcp_start = "10.18.0.10"
+dhcp_end = "10.18.0.100"
+
+[client]
+ssid = ""
+# WPA2 passphrase, 8 to 63 characters. Leave empty for an open network.
+password = ""
+# Seconds to wait for an address before falling back to the [ap] hotspot.
+fallback_timeout = 30

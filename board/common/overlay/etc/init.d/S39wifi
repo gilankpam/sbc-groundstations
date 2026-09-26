@@ -1,0 +1,120 @@
+#!/bin/sh
+# Run the onboard WiFi (wlan0) as configured in /config/wifi.toml: a hotspot,
+# a client of an existing network, or off.
+#
+# /config is the FAT32 CONFIG partition mounted by S00config, so the file can
+# be edited from a PC with the card in a reader. wifi-config validates it and
+# writes the actual wpa_supplicant/dnsmasq configs into $RUN on every start.
+#
+# wlan0 is deliberately not in /etc/network/interfaces.d: ifupdown has no way
+# to say "try the router, and if that goes nowhere run the hotspot instead".
+#
+# Client mode must not hold up boot, so the lease is waited for in the
+# background. If none arrives within [client].fallback_timeout the client is
+# torn down and the [ap] hotspot started, so the box is still reachable when
+# the router is off or the password is wrong.
+
+CONF=/config/wifi.toml
+RUN=/tmp/wifi
+IFACE=wlan0
+
+WPA_PID=/var/run/wpa_supplicant.$IFACE.pid
+DNSMASQ_PID=/var/run/dnsmasq.$IFACE.pid
+UDHCPC_PID=/var/run/udhcpc.$IFACE.pid
+FALLBACK_PID=/var/run/wifi-fallback.pid
+
+# stop_pid <pidfile>: kill it and wait for it to go, so a restart doesn't
+# start a second wpa_supplicant on the interface while the first still holds it.
+stop_pid() {
+	[ -f "$1" ] || return 0
+	pid=$(cat "$1")
+	rm -f "$1"
+	[ -n "$pid" ] && kill "$pid" 2>/dev/null || return 0
+	i=0
+	while kill -0 "$pid" 2>/dev/null && [ $i -lt 30 ]; do
+		usleep 100000
+		i=$((i + 1))
+	done
+}
+
+stop_services() {
+	stop_pid "$UDHCPC_PID"
+	stop_pid "$DNSMASQ_PID"
+	stop_pid "$WPA_PID"
+	ifconfig "$IFACE" 0.0.0.0 down 2>/dev/null
+}
+
+start_ap() {
+	echo "wifi: starting hotspot on $IFACE ($AP_ADDRESS)"
+	ifconfig "$IFACE" "$AP_ADDRESS" netmask "$AP_NETMASK" up
+	wpa_supplicant -B -i "$IFACE" -c "$RUN/wpa_ap.conf" -P "$WPA_PID"
+	dnsmasq -C "$RUN/dnsmasq.conf" -x "$DNSMASQ_PID"
+}
+
+has_address() {
+	ip -4 addr show dev "$IFACE" 2>/dev/null | grep -q "inet "
+}
+
+fallback_after_timeout() {
+	i=0
+	while [ $i -lt "$CLIENT_TIMEOUT" ]; do
+		if has_address; then
+			rm -f "$FALLBACK_PID"
+			return
+		fi
+		sleep 1
+		i=$((i + 1))
+	done
+	echo "wifi: no address after ${CLIENT_TIMEOUT}s in client mode, falling back to the hotspot"
+	stop_services
+	start_ap
+	rm -f "$FALLBACK_PID"
+}
+
+start_client() {
+	echo "wifi: joining network on $IFACE"
+	ifconfig "$IFACE" 0.0.0.0 up
+	wpa_supplicant -B -i "$IFACE" -c "$RUN/wpa_client.conf" -P "$WPA_PID"
+	# -f + & rather than -b: -b only backgrounds after the first discover
+	# attempts time out, which would stall boot for as long.
+	udhcpc -f -R -i "$IFACE" -p "$UDHCPC_PID" >/dev/null 2>&1 &
+	fallback_after_timeout &
+	echo $! >"$FALLBACK_PID"
+}
+
+start() {
+	if [ ! -d "/sys/class/net/$IFACE" ]; then
+		echo "wifi: no $IFACE, nothing to do"
+		return 0
+	fi
+	rm -rf "$RUN"
+	wifi-config "$CONF" "$RUN" || return 1
+	. "$RUN/wifi.env"
+	case "$MODE" in
+		ap) start_ap ;;
+		client) start_client ;;
+		off) echo "wifi: $IFACE off" ;;
+	esac
+}
+
+stop() {
+	stop_pid "$FALLBACK_PID"
+	stop_services
+}
+
+case "$1" in
+	start)
+		start
+		;;
+	stop)
+		stop
+		;;
+	restart | reload)
+		stop
+		start
+		;;
+	*)
+		echo "usage: $0 {start|stop|restart}"
+		exit 1
+		;;
+esac

@@ -144,7 +144,7 @@ MABUR_CONF_OPTS = \
 # MABUR_INSTALL_INIT_SYSV.
 #
 # The symlinks live here rather than in board/common/overlay because that
-# overlay is shared with the non-mabur boards (bonnet, orangepi), which would
+# overlay is shared with the non-mabur boards (orangepi), which would
 # otherwise carry two dangling /etc symlinks.
 #
 # The three assets under /usr/local/share/mabur are runtime files, not linked-in

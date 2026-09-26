@@ -30,14 +30,6 @@ define CLANG_DELETE_TARGET
 endef
 CLANG_POST_INSTALL_TARGET_HOOKS += CLANG_DELETE_TARGET
 
-# We don't nee samba python
-#
-# Override to disable Python support
-SAMBA4_CONF_OPTS += --disable-python
-
-# Clear Python-related variables
-SAMBA4_PYTHON = 
-
 # we do not need libclc on target
 define LIBCLC_DELETE_TARGET
 	rm -rf $(TARGET_DIR)/usr/share/clc
