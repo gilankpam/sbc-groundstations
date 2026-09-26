@@ -7,9 +7,9 @@
 # the card in a reader -- which is also why the files here are plain,
 # comment-heavy toml rather than anything generated.
 #
-# Runs before everything else (S00) because S96maburgs and S97maburplay read
-# /etc/maburgs.toml and /etc/maburplay.toml, and both of those are symlinks
-# into /config shipped by board/common/overlay.
+# Runs before everything else (S00) because S39wifi reads /config/wifi.toml,
+# and S96maburgs and S97maburplay read /etc/maburgs.toml and
+# /etc/maburplay.toml, both of which are symlinks into /config.
 #
 # This deliberately runs after pivot_root rather than inside /init: / is the
 # overlay by now, so if the mount fails -- card yanked, FAT trashed by an
