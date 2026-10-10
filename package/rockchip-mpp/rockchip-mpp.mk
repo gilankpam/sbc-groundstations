@@ -10,7 +10,7 @@
 # (fpvOS rkvdec2 stream mode, ported to this commit) are COPIES: the
 # canonical ones live in mabur, gs/player/mpp-patches/. Change them there,
 # then copy them here byte for byte.
-ROCKCHIP_MPP_VERSION = df4864bd1e907cbfd427c397348976c5b2b05ee9
+ROCKCHIP_MPP_VERSION = 14729dd578e570e5f00fd1dd2113f5429012d64b
 ROCKCHIP_MPP_SITE = https://github.com/rockchip-linux/mpp.git
 ROCKCHIP_MPP_SITE_METHOD = git
 ROCKCHIP_MPP_INSTALL_STAGING = YES
