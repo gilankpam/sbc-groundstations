@@ -89,4 +89,31 @@ emax_wyvern-link)
 		exit 1
 	fi
 	;;
+orangepi_zero2w)
+	# Allwinner H618: maburplay decodes on Cedrus (backend "v4l2req"), which
+	# has no encoder (no burned DVR), no CRTC LUT (no colortrans) and no MPP
+	# slice streaming. The H618's GPIO lines carry no names, so [input.rec]
+	# can never resolve -- strip it as on the Wyvern-Link. Every edit is
+	# checked: a silent no-op would ship a default that exits 2 at boot.
+	sed -i 's|^backend *= *"mpp"|backend     = "v4l2req"|' $MABURPLAY_DEFAULTS
+	sed -i '/^\[dvr\]/,/^\[/ s|^mode *= *"burned"|mode        = "raw"|' $MABURPLAY_DEFAULTS
+	sed -i '/^\[colortrans\]/,/^\[/ s|^enable *= *true|enable = false|' $MABURPLAY_DEFAULTS
+	sed -i '/^\[decoder\]/,/^\[/ s|^stream *= *true|stream = false|' $MABURPLAY_DEFAULTS
+	if ! grep -q '^\[input\.rec\]' $MABURPLAY_DEFAULTS; then
+		echo "post-build: no [input.rec] in $MABURPLAY_DEFAULTS -- did mabur drop it?" >&2
+		exit 1
+	fi
+	sed -i '/^\[input\.rec\]/,/^\[/{/^\[/!d}' $MABURPLAY_DEFAULTS
+	sed -i 's|^\[input\.rec\]$|# [input.rec] removed by board/common/post-build-script.sh: the H618\n# GPIO lines have no names for the pin to resolve to.\n|' $MABURPLAY_DEFAULTS
+	for want in '^backend *= *"v4l2req"' '^mode *= *"raw"' '^stream *= *false'; do
+		grep -q "$want" $MABURPLAY_DEFAULTS || {
+			echo "post-build: $MABURPLAY_DEFAULTS: expected $want after the orangepi edits" >&2; exit 1; }
+	done
+	if grep -q '^\[input\.rec\]' $MABURPLAY_DEFAULTS || grep -q '^mode *= *"burned"' $MABURPLAY_DEFAULTS; then
+		echo "post-build: orangepi edits to $MABURPLAY_DEFAULTS did not take" >&2
+		exit 1
+	fi
+	awk '/^\[colortrans\]/{f=1;next} /^\[/{f=0} f && /^enable *= *false/{ok=1} END{exit !ok}' $MABURPLAY_DEFAULTS || {
+		echo "post-build: colortrans not disabled in $MABURPLAY_DEFAULTS" >&2; exit 1; }
+	;;
 esac
