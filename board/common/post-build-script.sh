@@ -91,14 +91,15 @@ emax_wyvern-link)
 	;;
 orangepi_zero2w)
 	# Allwinner H618: maburplay decodes on Cedrus (backend "v4l2req"), which
-	# has no encoder (no burned DVR) and no CRTC LUT (no colortrans); it does
-	# stream slice by slice, so [decoder] stream keeps the bundle's default.
+	# has no encoder (no burned DVR); it does stream slice by slice, so
+	# [decoder] stream keeps the bundle's default, and [colortrans] keeps the
+	# bundle's true -- the display stage runs in the video plane's CSC
+	# through kernel patch 0002's CTM property.
 	# The H618's GPIO lines carry no names, so [input.rec]
 	# can never resolve -- strip it as on the Wyvern-Link. Every edit is
 	# checked: a silent no-op would ship a default that exits 2 at boot.
 	sed -i 's|^backend *= *"mpp"|backend     = "v4l2req"|' $MABURPLAY_DEFAULTS
 	sed -i '/^\[dvr\]/,/^\[/ s|^mode *= *"burned"|mode        = "raw"|' $MABURPLAY_DEFAULTS
-	sed -i '/^\[colortrans\]/,/^\[/ s|^enable *= *true|enable = false|' $MABURPLAY_DEFAULTS
 	if ! grep -q '^\[input\.rec\]' $MABURPLAY_DEFAULTS; then
 		echo "post-build: no [input.rec] in $MABURPLAY_DEFAULTS -- did mabur drop it?" >&2
 		exit 1
@@ -113,7 +114,7 @@ orangepi_zero2w)
 		echo "post-build: orangepi edits to $MABURPLAY_DEFAULTS did not take" >&2
 		exit 1
 	fi
-	awk '/^\[colortrans\]/{f=1;next} /^\[/{f=0} f && /^enable *= *false/{ok=1} END{exit !ok}' $MABURPLAY_DEFAULTS || {
-		echo "post-build: colortrans not disabled in $MABURPLAY_DEFAULTS" >&2; exit 1; }
+	awk '/^\[colortrans\]/{f=1;next} /^\[/{f=0} f && /^enable *= *true/{ok=1} END{exit !ok}' $MABURPLAY_DEFAULTS || {
+		echo "post-build: [colortrans] enable is not true in $MABURPLAY_DEFAULTS" >&2; exit 1; }
 	;;
 esac
