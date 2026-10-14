@@ -37,7 +37,8 @@ config BR2_PACKAGE_MABUR_DECODER_V4L2REQ
 	select BR2_PACKAGE_FFMPEG_V4L2REQUEST
 	help
 	  Allwinner H618. HEVC decode through libav's v4l2request
-	  hwaccel; no burned DVR, no colortrans.
+	  hwaccel; colortrans runs in the video plane's CSC through
+	  the kernel's CTM plane property; no burned DVR.
 
 endchoice
 
