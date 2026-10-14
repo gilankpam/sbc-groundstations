@@ -4,20 +4,45 @@ config BR2_PACKAGE_MABUR
 	depends on BR2_TOOLCHAIN_HAS_THREADS
 	select BR2_PACKAGE_DEVOURER
 	select BR2_PACKAGE_LIBUSB
-	select BR2_PACKAGE_ROCKCHIP_MPP
 	select BR2_PACKAGE_LIBDRM
 	help
 	  RTP-free FPV video link, ground station side.
 
 	  maburgs receives and FEC-decodes the air link and publishes whole
 	  access units to a shm ring; maburplay consumes that ring and drives
-	  MPP hardware decode straight to DRM/KMS, with the MSP and GS OSD
-	  layers and the fMP4 DVR on /media/dvr.
+	  hardware decode (Rockchip MPP or V4L2 request) straight to DRM/KMS,
+	  with the MSP and GS OSD layers and the fMP4 DVR on /media/dvr.
 
 	  Replaces wifibroadcast-ng, fpvd, pixelpilot, msposd and
 	  adaptive-link -- do not enable those alongside it.
 
 	  https://github.com/gilankpam/mabur
+
+if BR2_PACKAGE_MABUR
+
+choice
+	prompt "maburplay decoder"
+	default BR2_PACKAGE_MABUR_DECODER_MPP
+
+config BR2_PACKAGE_MABUR_DECODER_MPP
+	bool "Rockchip MPP"
+	select BR2_PACKAGE_ROCKCHIP_MPP
+	help
+	  RK3566 boards. MPP decode and encode (the burned DVR) and the
+	  GPU colortrans stage; mesa3d and librga come from the board
+	  defconfig.
+
+config BR2_PACKAGE_MABUR_DECODER_V4L2REQ
+	bool "V4L2 request (Cedrus)"
+	select BR2_PACKAGE_FFMPEG_V4L2REQUEST
+	help
+	  Allwinner H618. HEVC decode through libav's v4l2request
+	  hwaccel; colortrans runs in the video plane's CSC through
+	  the kernel's CTM plane property; no burned DVR.
+
+endchoice
+
+endif
 
 comment "mabur needs a toolchain w/ C++, threads"
 	depends on !BR2_INSTALL_LIBSTDCPP || !BR2_TOOLCHAIN_HAS_THREADS

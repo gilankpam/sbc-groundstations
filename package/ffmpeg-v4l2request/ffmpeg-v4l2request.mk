@@ -7,6 +7,11 @@
 # --enable-v4l2-request, and its 6.1.3 patches do not apply to 7.1 — so this is a
 # standalone package rather than an override of the core ffmpeg.
 #
+# 0002-hevc-v4l2request-stream-slices.patch is mabur's streamed-decode patch
+# (AV_PKT_FLAG_PARTIAL + the HEVC decoder's stream_slices option). Its
+# canonical copy lives in mabur, gs/player/ffmpeg-patches/; change it there
+# and copy it here byte for byte. maburplay will not build or start without it.
+#
 ################################################################################
 
 FFMPEG_V4L2REQUEST_VERSION = 904a85173fab816bb3c30652300efa93f2333657

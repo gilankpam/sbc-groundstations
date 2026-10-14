@@ -20,16 +20,33 @@ MABUR_INSTALL_STAGING = NO
 MABUR_INSTALL_TARGET = YES
 
 # devourer supplies the source tree mabur's CMake add_subdirectory()s; the rest
-# are real link/staging dependencies, and rockchip-mpp and libdrm additionally
-# have to be staged before the pre-configure hook below runs.
+# are real link/staging dependencies. The decoder choice (Config.in) picks
+# the rest: Rockchip MPP (rockchip-mpp, plus mesa3d + librga for the GPU
+# colortrans stage; rockchip-mpp and libdrm have to be staged before the
+# pre-configure hook below runs) or V4L2 request (ffmpeg-v4l2request, whose
+# libavcodec/libavutil mabur finds through pkg-config).
 #
 # No libgpiod: maburplay's record button talks to <linux/gpio.h> ioctls
 # directly (gs/player/src/rec_button.cpp), deliberately, so mabur links nothing
 # for it. The boards still enable libgpiod-tools for `gpioinfo`, which is how
 # you find the line name for a given header pin.
-MABUR_DEPENDENCIES = devourer libusb rockchip-mpp libdrm mesa3d librga
+MABUR_DEPENDENCIES = devourer libusb libdrm
 
-# gs/player/CMakeLists.txt links two libraries by absolute path:
+ifeq ($(BR2_PACKAGE_MABUR_DECODER_V4L2REQ),y)
+MABUR_DEPENDENCIES += ffmpeg-v4l2request
+MABUR_DECODER_OPTS = -DMABUR_PLAYER_DECODER=v4l2req
+else
+MABUR_DEPENDENCIES += rockchip-mpp mesa3d librga
+MABUR_PRE_CONFIGURE_HOOKS += MABUR_STAGE_LIBS
+MABUR_DECODER_OPTS = \
+	-DMABUR_PLAYER_DECODER=mpp \
+	-DMABUR_PLAYER_GPU=ON \
+	-DMABUR_MPP_ROOT=$(@D)/br-libs \
+	-DMABUR_DRM_ROOT=$(@D)/br-libs
+endif
+
+# MPP decoder only. gs/player/CMakeLists.txt links two libraries by absolute
+# path:
 #
 #   ${MABUR_MPP_ROOT}/lib/librockchip_mpp.a
 #   ${MABUR_DRM_ROOT}/lib/libdrm.a
@@ -69,7 +86,6 @@ define MABUR_STAGE_LIBS
 		$(@D)/br-libs/lib/librockchip_mpp.a
 	ln -sfn $(STAGING_DIR)/usr/lib/libdrm.so $(@D)/br-libs/lib/libdrm.a
 endef
-MABUR_PRE_CONFIGURE_HOOKS += MABUR_STAGE_LIBS
 
 # Mirrors tools/build-arm64.sh, the reference cross build for this target.
 # maburd is SigmaStar/armv7 and never built here; the host test suite needs
@@ -100,9 +116,10 @@ MABUR_GPIO_COMPAT_FLAG = -include $(MABUR_PKGDIR)/gpio_v2_compat.h
 # cross build does. Our -D comes after Buildroot's on the command line, so it
 # wins. Re-verify with `readelf -d` after any devourer bump.
 #
-# -DMABUR_PLAYER_GPU=ON: the burned-DVR colortrans stage (gs/player/src/
-# frame_colortrans.cpp) links EGL/GLESv2/gbm/rga from staging; mesa3d and
-# librga are real dependencies again since 2026-09-16 (docs/colortrans.md).
+# MABUR_DECODER_OPTS (above): on the MPP decoder, -DMABUR_PLAYER_GPU=ON is the
+# burned-DVR colortrans stage (gs/player/src/frame_colortrans.cpp), which links
+# EGL/GLESv2/gbm/rga from staging (docs/colortrans.md). The V4L2-request
+# decoder has no encoder, so no burned DVR and no GPU stage.
 MABUR_CONF_OPTS = \
 	-DBUILD_SHARED_LIBS=OFF \
 	-DCMAKE_C_FLAGS="$(TARGET_CFLAGS) $(MABUR_GPIO_COMPAT_FLAG)" \
@@ -112,9 +129,7 @@ MABUR_CONF_OPTS = \
 	-DMABUR_BUILD_LINKBENCH=OFF \
 	-DMABUR_BUILD_GS=ON \
 	-DMABUR_PLAYER_HW=ON \
-	-DMABUR_PLAYER_GPU=ON \
-	-DMABUR_MPP_ROOT=$(@D)/br-libs \
-	-DMABUR_DRM_ROOT=$(@D)/br-libs \
+	$(MABUR_DECODER_OPTS) \
 	-DDEVOURER_DIR=$(DEVOURER_SRCDIR) \
 	-DDEVOURER_LOG_MAX_LEVEL=WARN \
 	-DDEVOURER_JAGUAR1=OFF \

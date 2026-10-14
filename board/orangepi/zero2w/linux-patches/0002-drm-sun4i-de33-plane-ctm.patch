@@ -1,0 +1,408 @@
+drm/sun4i: de33: CTM property on the VI planes
+
+Adds a "CTM" blob property to every DE33 VI plane: 12 u64, row-major
+[A | b], each S31.32 sign-magnitude (the layout of upstream's
+drm_color_ctm_3x4, which 6.18 carries only in amdgpu_drm.h), on RGB
+normalised to [0,1], applied after the plane's YUV->RGB conversion.
+The driver folds it into the channel's CCSC: C' = A.C, and the offset
+b goes into the luma pre-offset (the post-constants cannot carry a
+negative offset on this hardware), which holds it exactly when it is a
+grey shift along C'[.][Y] -- the shape of a colour grade's lift. The
+correction costs nothing at scanout. Unset (or blob 0) leaves the stock
+table bit for bit: the identity CTM composes to exactly the
+BT.709-limited table. A CTM that does not fit -- a combined coefficient
+of 4.0 or more (the field is signed 20-bit and wraps), an offset that is
+not a grey shift, a pre-offset out of its field -- fails atomic_check
+with -ERANGE. RGB framebuffers (CSC off) ignore it; UI planes and
+DE2/DE3 mixers do not get it.
+
+mabur uses it to undo the drone's ColorTrans sensor tuning on the
+video plane only, leaving the OSD plane alone. Register limits were
+measured on an H618: mabur docs/findings/2026-10-12-opi-colortrans-probe.md.
+Superseded by the colour pipeline API (colorop CTM_3X4) on a kernel that
+has it.
+
+diff --color -ruN a/drivers/gpu/drm/sun4i/sun8i_csc.c b/drivers/gpu/drm/sun4i/sun8i_csc.c
+--- a/drivers/gpu/drm/sun4i/sun8i_csc.c	2026-06-17 21:55:49.000000000 +0700
++++ b/drivers/gpu/drm/sun4i/sun8i_csc.c	2026-10-14 00:19:57.643013500 +0700
+@@ -3,6 +3,8 @@
+  * Copyright (C) Jernej Skrabec <jernej.skrabec@siol.net>
+  */
+ 
++#include <linux/math64.h>
++
+ #include <drm/drm_fourcc.h>
+ #include <drm/drm_framebuffer.h>
+ #include <drm/drm_plane.h>
+@@ -10,6 +12,7 @@
+ 
+ #include "sun8i_csc.h"
+ #include "sun8i_mixer.h"
++#include "sun8i_vi_layer.h"
+ 
+ enum sun8i_csc_mode {
+ 	SUN8I_CSC_MODE_OFF,
+@@ -227,30 +230,120 @@
+ 	dst[14] &= 0xffff;
+ }
+ 
++/*
++ * A colour matrix on the plane (the "CTM" property, sun8i_vi_layer.c),
++ * folded into the DE33 CCSC. The CCSC computes, per output channel r,
++ *   out_r = sum_c C[r][c] * (in_c - d_c) + k_r
++ * in 10-bit units, C in S2.17, the pre-offsets d subtracted. A CTM
++ * [A | b] on normalised RGB composes as C' = A.C plus an output offset
++ * o = A.k + b * DE33_CSC_ONE. The post-constants k cannot carry a negative
++ * offset (measured on an H618: the picture saturates), so o goes into the
++ * luma pre-offset instead: raising d_Y by D shifts every row by
++ * -C'[r][Y] * D. That holds o exactly only when o is along C'[.][Y] -- a
++ * grey shift for a matrix that keeps grey grey, which is what a colour
++ * grade's lift/offset is. Any other offset, a d_Y outside the field, or a
++ * coefficient of 4.0 or more (signed 20-bit, wraps) is refused. Register
++ * limits: mabur docs/findings/2026-10-12-opi-colortrans-probe.md.
++ */
++#define DE33_CSC_ONE		1024		/* 1.0 in the CCSC's 10-bit RGB */
++#define DE33_CSC_COEF_MAX	((4 << 17) - 1)	/* largest |coefficient|, S2.17 */
++#define DE33_CSC_PREOFF_MAX	1023		/* 10-bit pre-offset field */
++#define DE33_CSC_OFFSET_TOL	2		/* per-row offset error, 10-bit units */
++#define DE33_CTM_MAX		(8LL << 32)	/* |A|,|b| bound: keeps s64 products exact */
++
++static s64 sun8i_ctm_s31_32(u64 v)
++{
++	s64 mag = (s64)(v & ~BIT_ULL(63));
++
++	return (v & BIT_ULL(63)) ? -mag : mag;
++}
++
++/* stock/out: the 15-word DE33 layout of sun8i_de33_convert_table(). */
++int sun8i_de33_csc_apply_ctm(const u32 *stock,
++			     const struct sun8i_ctm_3x4 *ctm, u32 *out)
++{
++	s64 a[3][4], o[3], cy[3], num, den, dy, res;
++	int r, c, j, best = 0;
++
++	for (r = 0; r < 3; r++)
++		for (c = 0; c < 4; c++) {
++			a[r][c] = sun8i_ctm_s31_32(ctm->matrix[r * 4 + c]);
++			if (a[r][c] > DE33_CTM_MAX || a[r][c] < -DE33_CTM_MAX)
++				return -ERANGE;
++		}
++
++	memcpy(out, stock, 15 * sizeof(u32));
++	for (r = 0; r < 3; r++) {
++		/* o_r in 10-bit units, S.32; the stock post-constants are 0. */
++		o[r] = a[r][3] * DE33_CSC_ONE;
++		for (c = 0; c < 3; c++) {
++			s64 v = 0;
++
++			for (j = 0; j < 3; j++)
++				v += a[r][j] * (s32)stock[3 + 4 * j + c];
++			v = (v + (1LL << 31)) >> 32;
++			if (v > DE33_CSC_COEF_MAX || v < -DE33_CSC_COEF_MAX)
++				return -ERANGE;
++			out[3 + 4 * r + c] = (u32)(s32)v;
++		}
++		cy[r] = (s32)out[3 + 4 * r];	/* C'[r][Y], S2.17 */
++		if (abs(cy[r]) > abs(cy[best]))
++			best = r;
++	}
++
++	/* D = -o / C'[.][Y], from the row with the largest luma gain. */
++	dy = 0;
++	if (o[0] || o[1] || o[2]) {
++		if (!cy[best])
++			return -ERANGE;
++		num = -o[best];
++		den = cy[best] << 15;		/* S.32 / S.17 -> 10-bit units */
++		dy = div64_s64(num + (((num < 0) ^ (den < 0)) ? -den / 2 : den / 2),
++			       den);
++	}
++	for (r = 0; r < 3; r++) {
++		res = o[r] + cy[r] * dy * (1LL << 15);
++		if (res > ((s64)DE33_CSC_OFFSET_TOL << 32) ||
++		    res < -((s64)DE33_CSC_OFFSET_TOL << 32))
++			return -ERANGE;
++	}
++	dy += stock[0];
++	if (dy < 0 || dy > DE33_CSC_PREOFF_MAX)
++		return -ERANGE;
++	out[0] = (u32)dy;
++	return 0;
++}
++
+ static void sun8i_de33_ccsc_setup(struct regmap *map, int layer,
+ 				  enum sun8i_csc_mode mode,
+ 				  enum drm_color_encoding encoding,
+-				  enum drm_color_range range)
++				  enum drm_color_range range,
++				  const struct sun8i_ctm_3x4 *ctm)
+ {
+-	u32 addr, val, base, csc[15];
++	u32 addr, val, base, stock[15], csc[15];
+ 	const u32 *table;
+ 	int i;
+ 
+ 	table = yuv2rgb_de3[range][encoding];
+ 	base = DE33_CCSC_BASE + layer * DE33_CH_SIZE;
+ 
++	if (mode != SUN8I_CSC_MODE_OFF) {
++		sun8i_de33_convert_table(table, stock);
++		/* atomic_check already refused a CTM that does not fit. */
++		if (!ctm || sun8i_de33_csc_apply_ctm(stock, ctm, csc))
++			memcpy(csc, stock, sizeof(csc));
++	}
++
+ 	switch (mode) {
+ 	case SUN8I_CSC_MODE_OFF:
+ 		val = 0;
+ 		break;
+ 	case SUN8I_CSC_MODE_YUV2RGB:
+ 		val = SUN8I_CSC_CTRL_EN;
+-		sun8i_de33_convert_table(table, csc);
+ 		regmap_bulk_write(map, SUN50I_CSC_COEFF(base, 0), csc, 15);
+ 		break;
+ 	case SUN8I_CSC_MODE_YVU2RGB:
+ 		val = SUN8I_CSC_CTRL_EN;
+-		sun8i_de33_convert_table(table, csc);
+ 		for (i = 0; i < 15; i++) {
+ 			addr = SUN50I_CSC_COEFF(base, i);
+ 			if (i > 3) {
+@@ -271,6 +364,18 @@
+ 	regmap_write(map, SUN8I_CSC_CTRL(base), val);
+ }
+ 
++int sun8i_csc_check_ctm(struct drm_plane_state *state)
++{
++	const struct sun8i_ctm_3x4 *ctm = sun8i_vi_layer_state_ctm(state);
++	u32 stock[15], out[15];
++
++	if (!ctm)
++		return 0;
++	sun8i_de33_convert_table(yuv2rgb_de3[state->color_range][state->color_encoding],
++				 stock);
++	return sun8i_de33_csc_apply_ctm(stock, ctm, out);
++}
++
+ static u32 sun8i_csc_get_mode(struct drm_plane_state *state)
+ {
+ 	const struct drm_format_info *format;
+@@ -307,7 +412,8 @@
+ 	} else if (layer->cfg->de_type == SUN8I_MIXER_DE33) {
+ 		sun8i_de33_ccsc_setup(layer->regs, layer->channel,
+ 				      mode, state->color_encoding,
+-				      state->color_range);
++				      state->color_range,
++				      sun8i_vi_layer_state_ctm(state));
+ 		return;
+ 	}
+ 
+diff --color -ruN a/drivers/gpu/drm/sun4i/sun8i_csc.h b/drivers/gpu/drm/sun4i/sun8i_csc.h
+--- a/drivers/gpu/drm/sun4i/sun8i_csc.h	2026-06-17 21:55:49.000000000 +0700
++++ b/drivers/gpu/drm/sun4i/sun8i_csc.h	2026-10-13 00:19:28.948665647 +0700
+@@ -28,6 +28,16 @@
+ 
+ #define SUN8I_CSC_CTRL_EN		BIT(0)
+ 
++/* Row-major [A | b], each S31.32 sign-magnitude, on normalised RGB: the
++ * layout of upstream's drm_color_ctm_3x4. */
++struct sun8i_ctm_3x4 {
++	u64 matrix[12];
++};
++
++int sun8i_de33_csc_apply_ctm(const u32 *stock,
++			     const struct sun8i_ctm_3x4 *ctm, u32 *out);
++int sun8i_csc_check_ctm(struct drm_plane_state *state);
++
+ void sun8i_csc_config(struct sun8i_layer *layer,
+ 		      struct drm_plane_state *state);
+ 
+diff --color -ruN a/drivers/gpu/drm/sun4i/sun8i_mixer.h b/drivers/gpu/drm/sun4i/sun8i_mixer.h
+--- a/drivers/gpu/drm/sun4i/sun8i_mixer.h	2026-06-17 21:55:49.000000000 +0700
++++ b/drivers/gpu/drm/sun4i/sun8i_mixer.h	2026-10-13 00:19:28.948856509 +0700
+@@ -231,6 +231,7 @@
+ 	int				overlay;
+ 	struct regmap			*regs;
+ 	const struct sun8i_layer_cfg	*cfg;
++	struct drm_property		*ctm_prop;	/* DE33 VI only */
+ };
+ 
+ static inline struct sun8i_layer *
+diff --color -ruN a/drivers/gpu/drm/sun4i/sun8i_vi_layer.c b/drivers/gpu/drm/sun4i/sun8i_vi_layer.c
+--- a/drivers/gpu/drm/sun4i/sun8i_vi_layer.c	2026-06-17 21:55:49.000000000 +0700
++++ b/drivers/gpu/drm/sun4i/sun8i_vi_layer.c	2026-10-13 00:19:28.949034968 +0700
+@@ -3,6 +3,8 @@
+  * Copyright (C) Jernej Skrabec <jernej.skrabec@siol.net>
+  */
+ 
++#include <linux/slab.h>
++
+ #include <drm/drm_atomic.h>
+ #include <drm/drm_atomic_helper.h>
+ #include <drm/drm_blend.h>
+@@ -12,6 +14,7 @@
+ #include <drm/drm_gem_atomic_helper.h>
+ #include <drm/drm_gem_dma_helper.h>
+ #include <drm/drm_probe_helper.h>
++#include <drm/drm_property.h>
+ 
+ #include "sun4i_crtc.h"
+ #include "sun8i_csc.h"
+@@ -247,6 +250,95 @@
+ 	}
+ }
+ 
++struct sun8i_vi_layer_state {
++	struct drm_plane_state base;
++	struct drm_property_blob *ctm;
++};
++
++static struct sun8i_vi_layer_state *to_sun8i_vi_state(struct drm_plane_state *s)
++{
++	return container_of(s, struct sun8i_vi_layer_state, base);
++}
++
++const struct sun8i_ctm_3x4 *
++sun8i_vi_layer_state_ctm(const struct drm_plane_state *state)
++{
++	const struct sun8i_vi_layer_state *s =
++		container_of(state, struct sun8i_vi_layer_state, base);
++
++	return s->ctm ? s->ctm->data : NULL;
++}
++
++static void sun8i_vi_layer_reset(struct drm_plane *plane)
++{
++	struct sun8i_vi_layer_state *s;
++
++	if (plane->state) {
++		plane->funcs->atomic_destroy_state(plane, plane->state);
++		plane->state = NULL;
++	}
++	s = kzalloc(sizeof(*s), GFP_KERNEL);
++	if (s)
++		__drm_atomic_helper_plane_reset(plane, &s->base);
++}
++
++static struct drm_plane_state *
++sun8i_vi_layer_duplicate_state(struct drm_plane *plane)
++{
++	struct sun8i_vi_layer_state *old = to_sun8i_vi_state(plane->state);
++	struct sun8i_vi_layer_state *s;
++
++	s = kmalloc(sizeof(*s), GFP_KERNEL);
++	if (!s)
++		return NULL;
++	__drm_atomic_helper_plane_duplicate_state(plane, &s->base);
++	s->ctm = old->ctm;
++	if (s->ctm)
++		drm_property_blob_get(s->ctm);
++	return &s->base;
++}
++
++static void sun8i_vi_layer_destroy_state(struct drm_plane *plane,
++					 struct drm_plane_state *state)
++{
++	struct sun8i_vi_layer_state *s = to_sun8i_vi_state(state);
++
++	drm_property_blob_put(s->ctm);
++	__drm_atomic_helper_plane_destroy_state(state);
++	kfree(s);
++}
++
++static int sun8i_vi_layer_set_property(struct drm_plane *plane,
++				       struct drm_plane_state *state,
++				       struct drm_property *property,
++				       u64 val)
++{
++	struct sun8i_layer *layer = plane_to_sun8i_layer(plane);
++	bool replaced = false;
++
++	if (!layer->ctm_prop || property != layer->ctm_prop)
++		return -EINVAL;
++	return drm_property_replace_blob_from_id(plane->dev,
++						 &to_sun8i_vi_state(state)->ctm,
++						 val, sizeof(struct sun8i_ctm_3x4),
++						 -1, &replaced);
++}
++
++static int sun8i_vi_layer_get_property(struct drm_plane *plane,
++				       const struct drm_plane_state *state,
++				       struct drm_property *property,
++				       u64 *val)
++{
++	struct sun8i_layer *layer = plane_to_sun8i_layer(plane);
++	const struct sun8i_vi_layer_state *s =
++		container_of(state, struct sun8i_vi_layer_state, base);
++
++	if (!layer->ctm_prop || property != layer->ctm_prop)
++		return -EINVAL;
++	*val = s->ctm ? s->ctm->base.id : 0;
++	return 0;
++}
++
+ static int sun8i_vi_layer_atomic_check(struct drm_plane *plane,
+ 				       struct drm_atomic_state *state)
+ {
+@@ -274,6 +366,14 @@
+ 		return ret;
+ 	}
+ 
++	if (layer->cfg->de_type == SUN8I_MIXER_DE33 && fmt->is_yuv) {
++		ret = sun8i_csc_check_ctm(new_plane_state);
++		if (ret) {
++			DRM_DEBUG_DRIVER("CTM out of the CSC's range\n");
++			return ret;
++		}
++	}
++
+ 	min_scale = DRM_PLANE_NO_SCALING;
+ 	max_scale = DRM_PLANE_NO_SCALING;
+ 
+@@ -312,11 +412,13 @@
+ };
+ 
+ static const struct drm_plane_funcs sun8i_vi_layer_funcs = {
+-	.atomic_destroy_state	= drm_atomic_helper_plane_destroy_state,
+-	.atomic_duplicate_state	= drm_atomic_helper_plane_duplicate_state,
++	.atomic_destroy_state	= sun8i_vi_layer_destroy_state,
++	.atomic_duplicate_state	= sun8i_vi_layer_duplicate_state,
++	.atomic_get_property	= sun8i_vi_layer_get_property,
++	.atomic_set_property	= sun8i_vi_layer_set_property,
+ 	.destroy		= drm_plane_cleanup,
+ 	.disable_plane		= drm_atomic_helper_disable_plane,
+-	.reset			= drm_atomic_helper_plane_reset,
++	.reset			= sun8i_vi_layer_reset,
+ 	.update_plane		= drm_atomic_helper_update_plane,
+ };
+ 
+@@ -524,6 +626,15 @@
+ 		return ERR_PTR(ret);
+ 	}
+ 
++	if (layer->cfg->de_type == SUN8I_MIXER_DE33) {
++		layer->ctm_prop = drm_property_create(drm, DRM_MODE_PROP_BLOB,
++						      "CTM", 0);
++		if (!layer->ctm_prop)
++			return ERR_PTR(-ENOMEM);
++		drm_object_attach_property(&layer->plane.base,
++					   layer->ctm_prop, 0);
++	}
++
+ 	drm_plane_helper_add(&layer->plane, &sun8i_vi_layer_helper_funcs);
+ 
+ 	return layer;
+diff --color -ruN a/drivers/gpu/drm/sun4i/sun8i_vi_layer.h b/drivers/gpu/drm/sun4i/sun8i_vi_layer.h
+--- a/drivers/gpu/drm/sun4i/sun8i_vi_layer.h	2026-06-17 21:55:49.000000000 +0700
++++ b/drivers/gpu/drm/sun4i/sun8i_vi_layer.h	2026-10-13 00:19:28.948926853 +0700
+@@ -60,4 +60,11 @@
+ 					    int index, int phy_index,
+ 					    int plane_cnt,
+ 					    const struct sun8i_layer_cfg *cfg);
++struct drm_plane_state;
++struct sun8i_ctm_3x4;
++
++/* The plane's CTM blob data, or NULL when none is set. */
++const struct sun8i_ctm_3x4 *
++sun8i_vi_layer_state_ctm(const struct drm_plane_state *state);
++
+ #endif /* _SUN8I_VI_LAYER_H_ */

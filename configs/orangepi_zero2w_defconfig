@@ -76,3 +76,9 @@ BR2_PACKAGE_HOST_SWIG=y
 # its patches do not apply to 7.1). Stages libav* for a Cedrus player + the
 # ffmpeg CLI for smoke tests; carries the prefer-linear-NV12 capture patch.
 BR2_PACKAGE_FFMPEG_V4L2REQUEST=y
+BR2_PACKAGE_LIBUSB=y
+BR2_PACKAGE_LIBGPIOD=y
+BR2_PACKAGE_LIBGPIOD_TOOLS=y
+BR2_PACKAGE_DRM_INFO=y
+BR2_PACKAGE_MABUR=y
+BR2_PACKAGE_MABUR_DECODER_V4L2REQ=y

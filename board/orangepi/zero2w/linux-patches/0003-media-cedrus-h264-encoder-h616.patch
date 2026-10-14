@@ -1,0 +1,1554 @@
+media: cedrus: H.264 encoder video node for the H616 video engine
+
+Add a second video node (cedrus-enc) to the Cedrus driver: a stateful
+V4L2 encoder taking NV12 and producing H.264 (CAVLC, Baseline/Main,
+fixed QP, one reference frame, no B frames). It shares the decoder's
+v4l2_m2m_dev, so encode and decode jobs serialise on the one engine and
+the IRQ handler and watchdog are common; the decoder is unchanged.
+
+The encode sequence follows Bootlin's Cedrus H.264 encoder for the
+V3s/S3 (the driver writes SPS, PPS and slice header through the
+encoder's put-bits port, then starts the encoder). The H616 video engine
+differs from the V3s in four ways that all matter for a correct stream:
+- the encoder-block address registers take the bus address >> 8;
+- the ISP input addresses stay plain bus addresses;
+- VE_ISP_SCALER_SIZE sets the encoder's macroblock grid and counts in
+  half macroblocks;
+- the macroblock-info, sub-pixel and reconstruction buffers must start
+  zeroed, as the encoder reads neighbour context back from them.
+
+The H616 compatible gets a variant with the H6 decoder set (unchanged
+decoder behaviour and clock) plus CEDRUS_CAPABILITY_H264_ENC. The codec
+ops gain an optional finish() hook, called before buffer completion, so
+the encoder can set the coded payload size and keyframe flag.
+
+Validated on an Orange Pi Zero 2W (H618), kernel 6.18.35: ffmpeg
+h264_v4l2m2m encodes 1920x1088 NV12 at about 6.5 ms per frame; streams
+decode without errors (IDR + P, GOP from the client); HEVC decode on the
+same engine runs concurrently.
+
+diff --git a/drivers/staging/media/sunxi/cedrus/Makefile b/drivers/staging/media/sunxi/cedrus/Makefile
+index a647b36..e4d1c59 100644
+--- a/drivers/staging/media/sunxi/cedrus/Makefile
++++ b/drivers/staging/media/sunxi/cedrus/Makefile
+@@ -1,6 +1,6 @@
+ # SPDX-License-Identifier: GPL-2.0
+ obj-$(CONFIG_VIDEO_SUNXI_CEDRUS) += sunxi-cedrus.o
+ 
+-sunxi-cedrus-y = cedrus.o cedrus_video.o cedrus_hw.o cedrus_dec.o \
++sunxi-cedrus-y = cedrus.o cedrus_video.o cedrus_hw.o cedrus_dec.o cedrus_enc.o \
+ 		 cedrus_mpeg2.o cedrus_h264.o cedrus_h265.o \
+ 		 cedrus_vp8.o
+diff --git a/drivers/staging/media/sunxi/cedrus/cedrus.c b/drivers/staging/media/sunxi/cedrus/cedrus.c
+index 212ed27..1fb85d9 100644
+--- a/drivers/staging/media/sunxi/cedrus/cedrus.c
++++ b/drivers/staging/media/sunxi/cedrus/cedrus.c
+@@ -26,6 +26,7 @@
+ #include "cedrus.h"
+ #include "cedrus_video.h"
+ #include "cedrus_dec.h"
++#include "cedrus_enc.h"
+ #include "cedrus_hw.h"
+ 
+ static int cedrus_try_ctrl(struct v4l2_ctrl *ctrl)
+@@ -438,8 +439,19 @@ static const struct video_device cedrus_video_device = {
+ 	.device_caps	= V4L2_CAP_VIDEO_M2M | V4L2_CAP_STREAMING,
+ };
+ 
++/* Decode and encode contexts share one m2m device: one job at a time. */
++static void cedrus_m2m_device_run(void *priv)
++{
++	struct cedrus_ctx *ctx = priv;
++
++	if (ctx->enc)
++		cedrus_enc_run(ctx);
++	else
++		cedrus_device_run(priv);
++}
++
+ static const struct v4l2_m2m_ops cedrus_m2m_ops = {
+-	.device_run	= cedrus_device_run,
++	.device_run	= cedrus_m2m_device_run,
+ };
+ 
+ static const struct media_device_ops cedrus_m2m_media_ops = {
+@@ -527,8 +539,28 @@ static int cedrus_probe(struct platform_device *pdev)
+ 		goto err_m2m_mc;
+ 	}
+ 
++	if (dev->capabilities & CEDRUS_CAPABILITY_H264_ENC) {
++		dev->vfd_enc = cedrus_enc_video_device;
++		dev->vfd_enc.lock = &dev->dev_mutex;
++		dev->vfd_enc.v4l2_dev = &dev->v4l2_dev;
++		video_set_drvdata(&dev->vfd_enc, dev);
++
++		ret = video_register_device(&dev->vfd_enc, VFL_TYPE_VIDEO, -1);
++		if (ret) {
++			v4l2_err(&dev->v4l2_dev,
++				 "Failed to register encoder video device\n");
++			goto err_mdev;
++		}
++
++		v4l2_info(&dev->v4l2_dev,
++			  "Encoder registered as /dev/video%d\n",
++			  dev->vfd_enc.num);
++	}
++
+ 	return 0;
+ 
++err_mdev:
++	media_device_unregister(&dev->mdev);
+ err_m2m_mc:
+ 	v4l2_m2m_unregister_media_controller(dev->m2m_dev);
+ err_video:
+@@ -548,6 +580,8 @@ static void cedrus_remove(struct platform_device *pdev)
+ 	struct cedrus_dev *dev = platform_get_drvdata(pdev);
+ 
+ 	cancel_delayed_work_sync(&dev->watchdog_work);
++	if (video_is_registered(&dev->vfd_enc))
++		video_unregister_device(&dev->vfd_enc);
+ 	if (media_devnode_is_registered(dev->mdev.devnode)) {
+ 		media_device_unregister(&dev->mdev);
+ 		v4l2_m2m_unregister_media_controller(dev->m2m_dev);
+@@ -649,6 +683,18 @@ static const struct cedrus_variant sun50i_h6_cedrus_variant = {
+ 	.mod_rate	= 648000000,
+ };
+ 
++/* The H6 decoder set plus the H.264 encoder (H616-specific programming). */
++static const struct cedrus_variant sun50i_h616_enc_cedrus_variant = {
++	.capabilities	= CEDRUS_CAPABILITY_UNTILED |
++			  CEDRUS_CAPABILITY_MPEG2_DEC |
++			  CEDRUS_CAPABILITY_H264_DEC |
++			  CEDRUS_CAPABILITY_H265_DEC |
++			  CEDRUS_CAPABILITY_H265_10_DEC |
++			  CEDRUS_CAPABILITY_VP8_DEC |
++			  CEDRUS_CAPABILITY_H264_ENC,
++	.mod_rate	= 648000000,
++};
++
+ static const struct cedrus_variant sun50i_h616_cedrus_variant = {
+ 	.capabilities	= CEDRUS_CAPABILITY_UNTILED |
+ 			  CEDRUS_CAPABILITY_MPEG2_DEC |
+@@ -705,7 +751,7 @@ static const struct of_device_id cedrus_dt_match[] = {
+ 	},
+ 	{
+ 		.compatible = "allwinner,sun50i-h616-video-engine",
+-		.data = &sun50i_h6_cedrus_variant,
++		.data = &sun50i_h616_enc_cedrus_variant,
+ 	},
+ 	{ /* sentinel */ }
+ };
+diff --git a/drivers/staging/media/sunxi/cedrus/cedrus.h b/drivers/staging/media/sunxi/cedrus/cedrus.h
+index 38f28f0..67adb3c 100644
+--- a/drivers/staging/media/sunxi/cedrus/cedrus.h
++++ b/drivers/staging/media/sunxi/cedrus/cedrus.h
+@@ -34,6 +34,7 @@
+ #define CEDRUS_CAPABILITY_MPEG2_DEC	BIT(3)
+ #define CEDRUS_CAPABILITY_VP8_DEC	BIT(4)
+ #define CEDRUS_CAPABILITY_H265_10_DEC	BIT(5)
++#define CEDRUS_CAPABILITY_H264_ENC	BIT(6)
+ 
+ enum cedrus_irq_status {
+ 	CEDRUS_IRQ_NONE,
+@@ -112,10 +113,15 @@ struct cedrus_buffer {
+ 	} codec;
+ };
+ 
++struct cedrus_enc_ctx;
++
+ struct cedrus_ctx {
+ 	struct v4l2_fh			fh;
+ 	struct cedrus_dev		*dev;
+ 
++	/* Encoder context: opened on the encoder video node. */
++	struct cedrus_enc_ctx		*enc;
++
+ 	struct v4l2_pix_format		src_fmt;
+ 	struct v4l2_pix_format		dst_fmt;
+ 	struct cedrus_dec_ops		*current_codec;
+@@ -170,6 +176,11 @@ struct cedrus_dec_ops {
+ 	void (*trigger)(struct cedrus_ctx *ctx);
+ 	unsigned int (*extra_cap_size)(struct cedrus_ctx *ctx,
+ 				       struct v4l2_pix_format *pix_fmt);
++	/*
++	 * Optional: called from the IRQ handler and the watchdog before the
++	 * job's buffers are completed (the encoder sets the coded payload).
++	 */
++	void (*finish)(struct cedrus_ctx *ctx, enum vb2_buffer_state state);
+ };
+ 
+ struct cedrus_variant {
+@@ -180,6 +191,7 @@ struct cedrus_variant {
+ struct cedrus_dev {
+ 	struct v4l2_device	v4l2_dev;
+ 	struct video_device	vfd;
++	struct video_device	vfd_enc;
+ 	struct media_device	mdev;
+ 	struct media_pad	pad[2];
+ 	struct platform_device	*pdev;
+diff --git a/drivers/staging/media/sunxi/cedrus/cedrus_enc.c b/drivers/staging/media/sunxi/cedrus/cedrus_enc.c
+new file mode 100644
+index 0000000..241cfd1
+--- /dev/null
++++ b/drivers/staging/media/sunxi/cedrus/cedrus_enc.c
+@@ -0,0 +1,1215 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Cedrus VPU driver: H.264 encoder (stateful V4L2 encoder interface)
++ *
++ * The encode sequence follows Bootlin's Cedrus H.264 encoder for the
++ * V3s/S3 (Paul Kocialkowski): the driver writes SPS, PPS and slice header
++ * through the encoder's put-bits port, then starts the encoder, which
++ * appends the slice data. Fixed QP, CAVLC, one reference frame, no B
++ * frames.
++ *
++ * Adapted to the H616 video engine, which differs from the V3s in four ways
++ * that all matter for a correct stream:
++ * - the encoder-block address registers take the bus address >> 8;
++ * - the ISP input addresses stay plain bus addresses;
++ * - VE_ISP_SCALER_SIZE sets the encoder's macroblock grid and counts in
++ *   half macroblocks;
++ * - the macroblock-info, sub-pixel and reconstruction buffers must start
++ *   zeroed: the encoder reads neighbour context back from them.
++ *
++ * The encoder node shares the decoder's v4l2_m2m_dev, so encode and decode
++ * jobs are serialised on the one engine by the m2m core.
++ */
++
++#include <linux/dma-mapping.h>
++#include <linux/pm_runtime.h>
++#include <linux/sizes.h>
++
++#include <media/v4l2-device.h>
++#include <media/v4l2-event.h>
++#include <media/v4l2-ioctl.h>
++#include <media/v4l2-mem2mem.h>
++#include <media/videobuf2-dma-contig.h>
++
++#include "cedrus.h"
++#include "cedrus_enc.h"
++#include "cedrus_regs.h"
++
++#define CEDRUS_ENC_MIN_WIDTH	64U
++#define CEDRUS_ENC_MIN_HEIGHT	64U
++#define CEDRUS_ENC_MAX_WIDTH	1920U
++#define CEDRUS_ENC_MAX_HEIGHT	1088U
++
++#define CEDRUS_ENC_LOG2_MAX_FRAME_NUM	8
++#define CEDRUS_ENC_LOG2_MAX_POC_LSB	8
++
++#define NALU_TYPE_SLICE_NON_IDR	1
++#define NALU_TYPE_SLICE_IDR	5
++#define NALU_TYPE_SPS		7
++#define NALU_TYPE_PPS		8
++
++#define SLICE_TYPE_P		0
++#define SLICE_TYPE_I		2
++
++struct cedrus_enc_ctx {
++	unsigned int		width_mbs;
++	unsigned int		height_mbs;
++
++	/* Engine-private buffers, allocated zeroed at OUTPUT streamon. */
++	void			*mb_info;
++	dma_addr_t		mb_info_dma;
++	size_t			mb_info_size;
++
++	void			*subpix[2];
++	dma_addr_t		subpix_dma[2];
++	size_t			subpix_size;
++
++	void			*rec[2];
++	dma_addr_t		rec_dma[2];
++	size_t			rec_size;
++	size_t			rec_luma_size;
++
++	/* Index of the subpix/rec pair the next frame writes. */
++	unsigned int		cur;
++	bool			have_ref;
++
++	/* Bitstream state. */
++	unsigned int		gop_index;
++	unsigned int		frame_num;
++	unsigned int		poc_lsb;
++	bool			sps_pps_sent;
++	bool			force_key;
++	int			qp_init;
++
++	/* Current job. */
++	bool			job_idr;
++
++	struct v4l2_fract	timeperframe;
++
++	struct v4l2_ctrl	*ctrl_profile;
++	struct v4l2_ctrl	*ctrl_level;
++	struct v4l2_ctrl	*ctrl_qp_i;
++	struct v4l2_ctrl	*ctrl_qp_p;
++	struct v4l2_ctrl	*ctrl_qp_min;
++	struct v4l2_ctrl	*ctrl_qp_max;
++	struct v4l2_ctrl	*ctrl_gop;
++	struct v4l2_ctrl	*ctrl_prepend;
++};
++
++/* Put-bits port */
++
++static void cedrus_enc_put(struct cedrus_dev *dev, u32 value,
++			   unsigned int count)
++{
++	u32 status;
++
++	if (readl_poll_timeout_atomic(dev->base + VE_ENC_AVC_STATUS_REG,
++				      status,
++				      status & VE_ENC_AVC_STATUS_PUT_BITS_READY,
++				      1, 1000))
++		dev_warn_ratelimited(dev->dev, "put-bits port not ready\n");
++
++	cedrus_write(dev, VE_ENC_AVC_PUTBITSDATA_REG, value);
++	cedrus_write(dev, VE_ENC_AVC_STARTTRIG_REG,
++		     VE_ENC_AVC_STARTTRIG_NUM_BITS(count) |
++		     VE_ENC_AVC_STARTTRIG_TYPE_PUT_BITS);
++}
++
++static void cedrus_enc_put_ue(struct cedrus_dev *dev, u32 value)
++{
++	/* Exp-Golomb: fls(v + 1) - 1 leading zeroes, then v + 1. */
++	unsigned int bits = 2 * (fls(value + 1) - 1) + 1;
++
++	cedrus_enc_put(dev, value + 1, bits);
++}
++
++static void cedrus_enc_put_se(struct cedrus_dev *dev, int value)
++{
++	cedrus_enc_put_ue(dev, value > 0 ? 2 * value - 1 : -2 * value);
++}
++
++static void cedrus_enc_put_u8(struct cedrus_dev *dev, u8 value)
++{
++	cedrus_enc_put(dev, value, 8);
++}
++
++static void cedrus_enc_put_start_code(struct cedrus_dev *dev)
++{
++	cedrus_enc_put_u8(dev, 0);
++	cedrus_enc_put_u8(dev, 0);
++	cedrus_enc_put_u8(dev, 0);
++	cedrus_enc_put_u8(dev, 1);
++}
++
++static void cedrus_enc_put_u32(struct cedrus_dev *dev, u32 value)
++{
++	cedrus_enc_put(dev, value >> 16, 16);
++	cedrus_enc_put(dev, value & 0xffff, 16);
++}
++
++static void cedrus_enc_put_trailing(struct cedrus_dev *dev)
++{
++	unsigned int rem;
++
++	cedrus_enc_put(dev, 1, 1);	/* rbsp_stop_one_bit */
++	rem = cedrus_read(dev, VE_ENC_AVC_STM_BIT_LEN_REG) % 8;
++	if (rem)
++		cedrus_enc_put(dev, 0, 8 - rem);
++}
++
++/* Profile/level */
++
++static u8 cedrus_enc_profile_idc(int profile)
++{
++	switch (profile) {
++	case V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE:
++	case V4L2_MPEG_VIDEO_H264_PROFILE_CONSTRAINED_BASELINE:
++		return 66;
++	case V4L2_MPEG_VIDEO_H264_PROFILE_MAIN:
++	default:
++		return 77;
++	}
++}
++
++static u8 cedrus_enc_constraint_flags(int profile)
++{
++	switch (profile) {
++	case V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE:
++		return BIT(7);			/* set0 */
++	case V4L2_MPEG_VIDEO_H264_PROFILE_CONSTRAINED_BASELINE:
++		return BIT(7) | BIT(6);		/* set0, set1 */
++	case V4L2_MPEG_VIDEO_H264_PROFILE_MAIN:
++	default:
++		return BIT(6);			/* set1 */
++	}
++}
++
++static u8 cedrus_enc_level_idc(int level)
++{
++	static const u8 idc[] = {
++		[V4L2_MPEG_VIDEO_H264_LEVEL_1_0] = 10,
++		[V4L2_MPEG_VIDEO_H264_LEVEL_1B]  = 9,
++		[V4L2_MPEG_VIDEO_H264_LEVEL_1_1] = 11,
++		[V4L2_MPEG_VIDEO_H264_LEVEL_1_2] = 12,
++		[V4L2_MPEG_VIDEO_H264_LEVEL_1_3] = 13,
++		[V4L2_MPEG_VIDEO_H264_LEVEL_2_0] = 20,
++		[V4L2_MPEG_VIDEO_H264_LEVEL_2_1] = 21,
++		[V4L2_MPEG_VIDEO_H264_LEVEL_2_2] = 22,
++		[V4L2_MPEG_VIDEO_H264_LEVEL_3_0] = 30,
++		[V4L2_MPEG_VIDEO_H264_LEVEL_3_1] = 31,
++		[V4L2_MPEG_VIDEO_H264_LEVEL_3_2] = 32,
++		[V4L2_MPEG_VIDEO_H264_LEVEL_4_0] = 40,
++		[V4L2_MPEG_VIDEO_H264_LEVEL_4_1] = 41,
++		[V4L2_MPEG_VIDEO_H264_LEVEL_4_2] = 42,
++		[V4L2_MPEG_VIDEO_H264_LEVEL_5_0] = 50,
++		[V4L2_MPEG_VIDEO_H264_LEVEL_5_1] = 51,
++	};
++
++	if (level < 0 || level >= ARRAY_SIZE(idc))
++		return 42;
++
++	return idc[level];
++}
++
++/* Headers */
++
++static void cedrus_enc_write_sps(struct cedrus_ctx *ctx)
++{
++	struct cedrus_dev *dev = ctx->dev;
++	struct cedrus_enc_ctx *enc = ctx->enc;
++	unsigned int crop_bottom;
++	int profile = enc->ctrl_profile->val;
++
++	cedrus_enc_put_start_code(dev);
++	cedrus_enc_put_u8(dev, (3 << 5) | NALU_TYPE_SPS);
++	cedrus_enc_put_u8(dev, cedrus_enc_profile_idc(profile));
++	cedrus_enc_put_u8(dev, cedrus_enc_constraint_flags(profile));
++	cedrus_enc_put_u8(dev, cedrus_enc_level_idc(enc->ctrl_level->val));
++	cedrus_enc_put_ue(dev, 0);	/* seq_parameter_set_id */
++	cedrus_enc_put_ue(dev, CEDRUS_ENC_LOG2_MAX_FRAME_NUM - 4);
++	cedrus_enc_put_ue(dev, 0);	/* pic_order_cnt_type */
++	cedrus_enc_put_ue(dev, CEDRUS_ENC_LOG2_MAX_POC_LSB - 4);
++	cedrus_enc_put_ue(dev, 1);	/* max_num_ref_frames */
++	cedrus_enc_put(dev, 0, 1);	/* gaps_in_frame_num_value_allowed */
++	cedrus_enc_put_ue(dev, enc->width_mbs - 1);
++	cedrus_enc_put_ue(dev, enc->height_mbs - 1);
++	cedrus_enc_put(dev, 1, 1);	/* frame_mbs_only_flag */
++	cedrus_enc_put(dev, 0, 1);	/* direct_8x8_inference_flag */
++
++	/* Width is macroblock-aligned by S_FMT; only the height can crop. */
++	crop_bottom = enc->height_mbs * 16 - ctx->src_fmt.height;
++	if (crop_bottom) {
++		cedrus_enc_put(dev, 1, 1);		/* frame_cropping_flag */
++		cedrus_enc_put_ue(dev, 0);		/* left */
++		cedrus_enc_put_ue(dev, 0);		/* right */
++		cedrus_enc_put_ue(dev, 0);		/* top */
++		cedrus_enc_put_ue(dev, crop_bottom / 2);	/* bottom, 4:2:0 */
++	} else {
++		cedrus_enc_put(dev, 0, 1);
++	}
++
++	cedrus_enc_put(dev, 1, 1);	/* vui_parameters_present_flag */
++	cedrus_enc_put(dev, 0, 1);	/* aspect_ratio_info_present_flag */
++	cedrus_enc_put(dev, 0, 1);	/* overscan_info_present_flag */
++	cedrus_enc_put(dev, 0, 1);	/* video_signal_type_present_flag */
++	cedrus_enc_put(dev, 0, 1);	/* chroma_loc_info_present_flag */
++	cedrus_enc_put(dev, 1, 1);	/* timing_info_present_flag */
++	/* One frame is two ticks: num_units_in_tick / time_scale = tpf / 2. */
++	cedrus_enc_put_u32(dev, enc->timeperframe.numerator);
++	cedrus_enc_put_u32(dev, enc->timeperframe.denominator * 2);
++	cedrus_enc_put(dev, 1, 1);	/* fixed_frame_rate_flag */
++	cedrus_enc_put(dev, 0, 1);	/* nal_hrd_parameters_present_flag */
++	cedrus_enc_put(dev, 0, 1);	/* vcl_hrd_parameters_present_flag */
++	cedrus_enc_put(dev, 0, 1);	/* pic_struct_present_flag */
++	cedrus_enc_put(dev, 0, 1);	/* bitstream_restriction_flag */
++
++	cedrus_enc_put_trailing(dev);
++}
++
++static void cedrus_enc_write_pps(struct cedrus_ctx *ctx)
++{
++	struct cedrus_dev *dev = ctx->dev;
++	struct cedrus_enc_ctx *enc = ctx->enc;
++
++	cedrus_enc_put_start_code(dev);
++	cedrus_enc_put_u8(dev, (3 << 5) | NALU_TYPE_PPS);
++	cedrus_enc_put_ue(dev, 0);	/* pic_parameter_set_id */
++	cedrus_enc_put_ue(dev, 0);	/* seq_parameter_set_id */
++	cedrus_enc_put(dev, 0, 1);	/* entropy_coding_mode_flag: CAVLC */
++	cedrus_enc_put(dev, 0, 1);	/* bottom_field_pic_order_in_frame */
++	cedrus_enc_put_ue(dev, 0);	/* num_slice_groups_minus1 */
++	cedrus_enc_put_ue(dev, 0);	/* num_ref_idx_l0_default_minus1 */
++	cedrus_enc_put_ue(dev, 0);	/* num_ref_idx_l1_default_minus1 */
++	cedrus_enc_put(dev, 0, 1);	/* weighted_pred_flag */
++	cedrus_enc_put(dev, 0, 2);	/* weighted_bipred_idc */
++	cedrus_enc_put_se(dev, enc->qp_init - 26);	/* pic_init_qp */
++	cedrus_enc_put_se(dev, enc->qp_init - 26);	/* pic_init_qs */
++	cedrus_enc_put_se(dev, 0);	/* chroma_qp_index_offset */
++	cedrus_enc_put(dev, 1, 1);	/* deblocking_filter_control_present */
++	cedrus_enc_put(dev, 0, 1);	/* constrained_intra_pred_flag */
++	cedrus_enc_put(dev, 0, 1);	/* redundant_pic_cnt_present_flag */
++
++	cedrus_enc_put_trailing(dev);
++}
++
++static void cedrus_enc_write_slice_header(struct cedrus_ctx *ctx, int qp)
++{
++	struct cedrus_dev *dev = ctx->dev;
++	struct cedrus_enc_ctx *enc = ctx->enc;
++	bool idr = enc->job_idr;
++
++	cedrus_enc_put_start_code(dev);
++	/* Every picture is a reference: nal_ref_idc 2. */
++	cedrus_enc_put_u8(dev, (2 << 5) |
++			  (idr ? NALU_TYPE_SLICE_IDR : NALU_TYPE_SLICE_NON_IDR));
++	cedrus_enc_put_ue(dev, 0);	/* first_mb_in_slice */
++	cedrus_enc_put_ue(dev, idr ? SLICE_TYPE_I : SLICE_TYPE_P);
++	cedrus_enc_put_ue(dev, 0);	/* pic_parameter_set_id */
++	cedrus_enc_put(dev, enc->frame_num, CEDRUS_ENC_LOG2_MAX_FRAME_NUM);
++	if (idr)
++		cedrus_enc_put_ue(dev, 0);	/* idr_pic_id */
++	cedrus_enc_put(dev, enc->poc_lsb, CEDRUS_ENC_LOG2_MAX_POC_LSB);
++	if (!idr) {
++		cedrus_enc_put(dev, 0, 1);	/* num_ref_idx_active_override */
++		cedrus_enc_put(dev, 0, 1);	/* ref_pic_list_modification_l0 */
++	}
++	if (idr) {
++		cedrus_enc_put(dev, 0, 1);	/* no_output_of_prior_pics_flag */
++		cedrus_enc_put(dev, 0, 1);	/* long_term_reference_flag */
++	} else {
++		cedrus_enc_put(dev, 0, 1);	/* adaptive_ref_pic_marking_mode */
++	}
++	cedrus_enc_put_se(dev, qp - enc->qp_init);	/* slice_qp_delta */
++	cedrus_enc_put_ue(dev, 0);	/* disable_deblocking_filter_idc */
++	cedrus_enc_put_se(dev, 0);	/* slice_alpha_c0_offset_div2 */
++	cedrus_enc_put_se(dev, 0);	/* slice_beta_offset_div2 */
++}
++
++/* Job */
++
++void cedrus_enc_run(struct cedrus_ctx *ctx)
++{
++	struct cedrus_dev *dev = ctx->dev;
++	struct cedrus_enc_ctx *enc = ctx->enc;
++	struct vb2_v4l2_buffer *src, *dst;
++	dma_addr_t src_addr, dst_addr, ref, ref_subpix;
++	unsigned int bpl = ctx->src_fmt.bytesperline;
++	unsigned int cur = enc->cur, prev = cur ^ 1;
++	size_t dst_size;
++	int qp, qp_min, qp_max;
++	u32 reg, status;
++
++	src = v4l2_m2m_next_src_buf(ctx->fh.m2m_ctx);
++	dst = v4l2_m2m_next_dst_buf(ctx->fh.m2m_ctx);
++
++	v4l2_m2m_buf_copy_metadata(src, dst, false);
++
++	/* Frame type. */
++	if (!enc->have_ref || enc->force_key)
++		enc->gop_index = 0;
++	enc->force_key = false;
++	enc->job_idr = enc->gop_index == 0;
++	if (enc->job_idr) {
++		enc->frame_num = 0;
++		enc->poc_lsb = 0;
++	}
++
++	qp = enc->job_idr ? enc->ctrl_qp_i->val : enc->ctrl_qp_p->val;
++	qp_min = enc->ctrl_qp_min->val;
++	qp_max = enc->ctrl_qp_max->val;
++	qp = clamp(qp, qp_min, max(qp_min, qp_max));
++
++	src_addr = vb2_dma_contig_plane_dma_addr(&src->vb2_buf, 0);
++	dst_addr = vb2_dma_contig_plane_dma_addr(&dst->vb2_buf, 0);
++	dst_size = vb2_plane_size(&dst->vb2_buf, 0);
++
++	/* Encoder on, reset, ISP and encoder enabled, decoders off. */
++	cedrus_write(dev, VE_MODE, VE_MODE_DISABLED);
++	reg = cedrus_read(dev, VE_RESET_REG);
++	cedrus_write(dev, VE_RESET_REG, reg | VE_RESET_ENCODER_RESET);
++	cedrus_write(dev, VE_RESET_REG, reg & ~VE_RESET_ENCODER_RESET);
++	cedrus_write(dev, VE_MODE, VE_MODE_ENC_ENABLE |
++		     VE_MODE_ENC_ISP_ENABLE | VE_MODE_DISABLED);
++
++	/* ISP: NV12 input, plain bus addresses; grid in half macroblocks. */
++	cedrus_write(dev, VE_ISP_PIC_INFO_REG,
++		     VE_ISP_PIC_INFO_WIDTH_MBS(enc->width_mbs) |
++		     VE_ISP_PIC_INFO_HEIGHT_MBS(enc->height_mbs));
++	cedrus_write(dev, VE_ISP_SCALER_SIZE_REG,
++		     VE_ISP_SCALER_SIZE_HEIGHT(2 * enc->height_mbs) |
++		     VE_ISP_SCALER_SIZE_WIDTH(2 * enc->width_mbs));
++	cedrus_write(dev, VE_ISP_PIC_STRIDE0_REG,
++		     VE_ISP_PIC_STRIDE0_INPUT_STRIDE_MBS(bpl / 16));
++	cedrus_write(dev, VE_ISP_CTRL_REG, VE_ISP_CTRL_FORMAT_YUV420SP);
++	cedrus_write(dev, VE_ISP_INPUT_LUMA_ADDR_REG, src_addr);
++	cedrus_write(dev, VE_ISP_INPUT_CHROMA0_ADDR_REG,
++		     src_addr + bpl * ctx->src_fmt.height);
++
++	/* Coded buffer. */
++	cedrus_write(dev, VE_ENC_AVC_INT_EN_REG, 0);
++	cedrus_write(dev, VE_ENC_AVC_STARTTRIG_REG, 0);
++	cedrus_write(dev, VE_ENC_AVC_STM_BIT_OFFSET_REG, 0);
++	cedrus_write(dev, VE_ENC_AVC_STM_START_ADDR_REG, VE_ENC_ADDR(dst_addr));
++	cedrus_write(dev, VE_ENC_AVC_STM_END_ADDR_REG,
++		     VE_ENC_ADDR(dst_addr + dst_size - 1));
++	cedrus_write(dev, VE_ENC_AVC_STM_BIT_MAX_REG, dst_size * 8);
++	cedrus_write(dev, VE_ENC_AVC_STM_BIT_LEN_REG, 0);
++	cedrus_write(dev, VE_ENC_AVC_HEADER_BITS_REG, 0);
++	cedrus_write(dev, VE_ENC_AVC_RESIDUAL_BITS_REG, 0);
++
++	/* Headers, written with emulation prevention off. */
++	cedrus_write(dev, VE_ENC_AVC_PARA0_REG, VE_ENC_AVC_PARA0_EPTB_DIS);
++	if (enc->job_idr &&
++	    (!enc->sps_pps_sent || enc->ctrl_prepend->val)) {
++		enc->qp_init = qp;
++		cedrus_enc_write_sps(ctx);
++		cedrus_enc_write_pps(ctx);
++		enc->sps_pps_sent = true;
++	}
++	cedrus_enc_write_slice_header(ctx, qp);
++	cedrus_write(dev, VE_ENC_AVC_PARA0_REG, 0);
++
++	if (readl_poll_timeout_atomic(dev->base + VE_RESET_REG, status,
++				      (status & (VE_RESET_SYNC_IDLE |
++						 VE_RESET_CACHE_SYNC_IDLE)) ==
++				      (VE_RESET_SYNC_IDLE |
++				       VE_RESET_CACHE_SYNC_IDLE), 1, 1000))
++		dev_warn_ratelimited(dev->dev, "sync idle timeout\n");
++
++	/* Engine buffers: reconstruction/sub-pixel ping-pong. */
++	if (enc->job_idr) {
++		ref = enc->rec_dma[cur];
++		ref_subpix = enc->subpix_dma[cur];
++	} else {
++		ref = enc->rec_dma[prev];
++		ref_subpix = enc->subpix_dma[prev];
++	}
++
++	cedrus_write(dev, VE_ENC_AVC_MB_INFO_ADDR_REG,
++		     VE_ENC_ADDR(enc->mb_info_dma));
++	cedrus_write(dev, VE_ENC_AVC_MV_BUF_ADDR_REG, 0);
++	cedrus_write(dev, VE_ENC_AVC_REC_ADDR_Y_REG,
++		     VE_ENC_ADDR(enc->rec_dma[cur]));
++	cedrus_write(dev, VE_ENC_AVC_REC_ADDR_C_REG,
++		     VE_ENC_ADDR(enc->rec_dma[cur] + enc->rec_luma_size));
++	cedrus_write(dev, VE_ENC_AVC_REF0_ADDR_Y_REG, VE_ENC_ADDR(ref));
++	cedrus_write(dev, VE_ENC_AVC_REF0_ADDR_C_REG,
++		     VE_ENC_ADDR(ref + enc->rec_luma_size));
++	cedrus_write(dev, VE_ENC_AVC_SUBPIX_ADDR_NEW_REG,
++		     VE_ENC_ADDR(enc->subpix_dma[cur]));
++	cedrus_write(dev, VE_ENC_AVC_SUBPIX_ADDR_LAST_REG,
++		     VE_ENC_ADDR(ref_subpix));
++	cedrus_write(dev, VE_ENC_AVC_DEBLK_ADDR_REG, 0);
++	cedrus_write(dev, VE_ENC_AVC_CYCLIC_INTRA_REFRESH_REG, 0);
++
++	/* Picture parameters. The frame number field is always 0. */
++	cedrus_write(dev, VE_ENC_AVC_PARA0_REG,
++		     enc->job_idr ? VE_ENC_AVC_PARA0_SLICE_TYPE_I :
++				    VE_ENC_AVC_PARA0_SLICE_TYPE_P);
++	cedrus_write(dev, VE_ENC_AVC_PARA1_REG,
++		     VE_ENC_AVC_PARA1_QP_CHROMA_OFFSET0(0) |
++		     VE_ENC_AVC_PARA1_STRIDE_MBS_DIV_48(DIV_ROUND_UP(bpl / 16, 48)) |
++		     VE_ENC_AVC_PARA1_FIXED_QP(qp));
++	cedrus_write(dev, VE_ENC_AVC_PARA2_REG, 0);
++	cedrus_write(dev, VE_ENC_AVC_DYNAMIC_ME_PAR0_REG, 0);
++	cedrus_write(dev, VE_ENC_AVC_DYNAMIC_ME_PAR1_REG, 0);
++	cedrus_write(dev, VE_ENC_AVC_RC_INIT_REG, 0);
++	cedrus_write(dev, VE_ENC_AVC_RC_MAD_TH0_REG, 0);
++	cedrus_write(dev, VE_ENC_AVC_RC_MAD_TH1_REG, 0);
++	cedrus_write(dev, VE_ENC_AVC_RC_MAD_TH2_REG, 0);
++	cedrus_write(dev, VE_ENC_AVC_RC_MAD_TH3_REG, 0);
++	cedrus_write(dev, VE_ENC_AVC_ME_PARA_REG,
++		     VE_ENC_AVC_ME_PARA_WB_MV_INFO_DIS |
++		     VE_ENC_AVC_ME_PARA_FME_SEARCH_LEVEL(2));
++	cedrus_write(dev, VE_ENC_AVC_MAD_REG, 0);
++	cedrus_write(dev, VE_ENC_AVC_OVERTIME_MB_REG, 0);
++	cedrus_write(dev, VE_ENC_AVC_ME_INFO_REG, 0);
++
++	schedule_delayed_work(&dev->watchdog_work, msecs_to_jiffies(2000));
++
++	cedrus_write(dev, VE_ENC_AVC_INT_EN_REG,
++		     VE_ENC_AVC_INT_EN_STALL | VE_ENC_AVC_INT_EN_FINISH);
++	cedrus_write(dev, VE_ENC_AVC_STARTTRIG_REG,
++		     VE_ENC_AVC_STARTTRIG_TYPE_ENC_START);
++}
++
++/* IRQ */
++
++static enum cedrus_irq_status cedrus_enc_irq_status(struct cedrus_ctx *ctx)
++{
++	u32 status = cedrus_read(ctx->dev, VE_ENC_AVC_STATUS_REG);
++
++	if (!(status & VE_ENC_AVC_STATUS_MASK))
++		return CEDRUS_IRQ_NONE;
++
++	if (status & VE_ENC_AVC_STATUS_FINISH)
++		return CEDRUS_IRQ_OK;
++
++	return CEDRUS_IRQ_ERROR;
++}
++
++static void cedrus_enc_irq_clear(struct cedrus_ctx *ctx)
++{
++	cedrus_write(ctx->dev, VE_ENC_AVC_STATUS_REG, VE_ENC_AVC_STATUS_MASK);
++}
++
++static void cedrus_enc_irq_disable(struct cedrus_ctx *ctx)
++{
++	cedrus_write(ctx->dev, VE_ENC_AVC_INT_EN_REG, 0);
++}
++
++static void cedrus_enc_finish(struct cedrus_ctx *ctx,
++			      enum vb2_buffer_state state)
++{
++	static const struct v4l2_event eos = { .type = V4L2_EVENT_EOS };
++	struct cedrus_dev *dev = ctx->dev;
++	struct cedrus_enc_ctx *enc = ctx->enc;
++	struct vb2_v4l2_buffer *src, *dst;
++	u32 bits;
++
++	src = v4l2_m2m_next_src_buf(ctx->fh.m2m_ctx);
++	dst = v4l2_m2m_next_dst_buf(ctx->fh.m2m_ctx);
++
++	dst->flags &= ~(V4L2_BUF_FLAG_KEYFRAME | V4L2_BUF_FLAG_PFRAME |
++			V4L2_BUF_FLAG_BFRAME);
++
++	if (state == VB2_BUF_STATE_DONE) {
++		bits = cedrus_read(dev, VE_ENC_AVC_STM_BIT_LEN_REG);
++		vb2_set_plane_payload(&dst->vb2_buf, 0,
++				      min_t(size_t, DIV_ROUND_UP(bits, 8),
++					    vb2_plane_size(&dst->vb2_buf, 0)));
++		dst->flags |= enc->job_idr ? V4L2_BUF_FLAG_KEYFRAME :
++					     V4L2_BUF_FLAG_PFRAME;
++
++		enc->cur ^= 1;
++		enc->have_ref = true;
++		enc->frame_num = (enc->frame_num + 1) %
++				 BIT(CEDRUS_ENC_LOG2_MAX_FRAME_NUM);
++		enc->poc_lsb = (enc->poc_lsb + 2) %
++			       BIT(CEDRUS_ENC_LOG2_MAX_POC_LSB);
++		enc->gop_index++;
++		if (enc->gop_index >= enc->ctrl_gop->val)
++			enc->gop_index = 0;
++	} else {
++		vb2_set_plane_payload(&dst->vb2_buf, 0, 0);
++		/* The reference is suspect: restart with an IDR. */
++		enc->have_ref = false;
++	}
++
++	cedrus_write(dev, VE_MODE, VE_MODE_DISABLED);
++
++	if (src && v4l2_m2m_is_last_draining_src_buf(ctx->fh.m2m_ctx, src)) {
++		dst->flags |= V4L2_BUF_FLAG_LAST;
++		v4l2_event_queue_fh(&ctx->fh, &eos);
++		v4l2_m2m_mark_stopped(ctx->fh.m2m_ctx);
++	}
++}
++
++static struct cedrus_dec_ops cedrus_enc_ops_h264 = {
++	.irq_clear	= cedrus_enc_irq_clear,
++	.irq_disable	= cedrus_enc_irq_disable,
++	.irq_status	= cedrus_enc_irq_status,
++	.finish		= cedrus_enc_finish,
++};
++
++/* Engine buffers */
++
++static void cedrus_enc_buffers_free(struct cedrus_ctx *ctx)
++{
++	struct cedrus_enc_ctx *enc = ctx->enc;
++	struct device *dev = ctx->dev->dev;
++	unsigned int i;
++
++	for (i = 0; i < 2; i++) {
++		if (enc->rec[i])
++			dma_free_coherent(dev, enc->rec_size, enc->rec[i],
++					  enc->rec_dma[i]);
++		if (enc->subpix[i])
++			dma_free_coherent(dev, enc->subpix_size, enc->subpix[i],
++					  enc->subpix_dma[i]);
++		enc->rec[i] = NULL;
++		enc->subpix[i] = NULL;
++	}
++
++	if (enc->mb_info)
++		dma_free_coherent(dev, enc->mb_info_size, enc->mb_info,
++				  enc->mb_info_dma);
++	enc->mb_info = NULL;
++}
++
++static int cedrus_enc_buffers_alloc(struct cedrus_ctx *ctx)
++{
++	struct cedrus_enc_ctx *enc = ctx->enc;
++	struct device *dev = ctx->dev->dev;
++	unsigned int w = enc->width_mbs, h = enc->height_mbs;
++	size_t subpix_w, subpix_h, rec_chroma;
++	unsigned int i;
++
++	/* Sizes as Bootlin's V3s encoder; dma_alloc_coherent zeroes them. */
++	enc->mb_info_size = DIV_ROUND_UP(w, 32) * SZ_4K;
++	subpix_w = ALIGN_DOWN((w + 47) * 2 / 3, 32) + ALIGN(w, 32) * 2;
++	subpix_h = (h * 16 + 72) / 8;
++	enc->subpix_size = PAGE_ALIGN(subpix_w * subpix_h);
++	enc->rec_luma_size = ALIGN(w, 2) * 16 * ALIGN(h + 1, 4) * 16;
++	rec_chroma = ALIGN(w, 2) * 16 * ALIGN(DIV_ROUND_UP(h, 2), 4) * 16;
++	enc->rec_size = PAGE_ALIGN(enc->rec_luma_size + rec_chroma);
++
++	enc->mb_info = dma_alloc_coherent(dev, enc->mb_info_size,
++					  &enc->mb_info_dma, GFP_KERNEL);
++	if (!enc->mb_info)
++		goto err;
++
++	for (i = 0; i < 2; i++) {
++		enc->subpix[i] = dma_alloc_coherent(dev, enc->subpix_size,
++						    &enc->subpix_dma[i],
++						    GFP_KERNEL);
++		enc->rec[i] = dma_alloc_coherent(dev, enc->rec_size,
++						 &enc->rec_dma[i], GFP_KERNEL);
++		if (!enc->subpix[i] || !enc->rec[i])
++			goto err;
++	}
++
++	return 0;
++
++err:
++	cedrus_enc_buffers_free(ctx);
++	return -ENOMEM;
++}
++
++/* Formats */
++
++static void cedrus_enc_prepare_src_fmt(struct v4l2_pix_format *pix)
++{
++	unsigned int height_aligned;
++
++	pix->pixelformat = V4L2_PIX_FMT_NV12;
++	pix->field = V4L2_FIELD_NONE;
++	pix->width = clamp(ALIGN(pix->width, 16), CEDRUS_ENC_MIN_WIDTH,
++			   CEDRUS_ENC_MAX_WIDTH);
++	pix->height = clamp(ALIGN(pix->height, 2), CEDRUS_ENC_MIN_HEIGHT,
++			    CEDRUS_ENC_MAX_HEIGHT);
++	pix->bytesperline = clamp(ALIGN(pix->bytesperline, 16), pix->width,
++				  ALIGN(pix->width, 16) * 4);
++	/*
++	 * Plain single-plane NV12 (chroma right after height lines of luma),
++	 * plus room for the engine reading whole macroblock rows of both
++	 * planes when the height is not a multiple of 16.
++	 */
++	height_aligned = ALIGN(pix->height, 16);
++	pix->sizeimage = max_t(u32, pix->sizeimage,
++			       pix->bytesperline * pix->height +
++			       pix->bytesperline * height_aligned / 2);
++}
++
++static void cedrus_enc_prepare_dst_fmt(struct cedrus_ctx *ctx,
++				       struct v4l2_pix_format *pix)
++{
++	u32 min_size;
++
++	pix->pixelformat = V4L2_PIX_FMT_H264;
++	pix->field = V4L2_FIELD_NONE;
++	pix->width = ctx->src_fmt.width;
++	pix->height = ctx->src_fmt.height;
++	pix->bytesperline = 0;
++	/* Worst case: a raw picture's worth of bitstream. */
++	min_size = PAGE_ALIGN(ctx->src_fmt.width *
++			      ALIGN(ctx->src_fmt.height, 16) * 3 / 2);
++	pix->sizeimage = PAGE_ALIGN(max_t(u32, pix->sizeimage, min_size));
++	pix->colorspace = ctx->src_fmt.colorspace;
++	pix->xfer_func = ctx->src_fmt.xfer_func;
++	pix->ycbcr_enc = ctx->src_fmt.ycbcr_enc;
++	pix->quantization = ctx->src_fmt.quantization;
++}
++
++static int cedrus_enc_querycap(struct file *file, void *priv,
++			       struct v4l2_capability *cap)
++{
++	strscpy(cap->driver, CEDRUS_NAME, sizeof(cap->driver));
++	strscpy(cap->card, CEDRUS_NAME "-enc", sizeof(cap->card));
++	snprintf(cap->bus_info, sizeof(cap->bus_info),
++		 "platform:%s-enc", CEDRUS_NAME);
++
++	return 0;
++}
++
++static int cedrus_enc_enum_fmt_vid_cap(struct file *file, void *priv,
++				       struct v4l2_fmtdesc *f)
++{
++	if (f->index)
++		return -EINVAL;
++
++	f->pixelformat = V4L2_PIX_FMT_H264;
++	f->flags = V4L2_FMT_FLAG_COMPRESSED;
++
++	return 0;
++}
++
++static int cedrus_enc_enum_fmt_vid_out(struct file *file, void *priv,
++				       struct v4l2_fmtdesc *f)
++{
++	if (f->index)
++		return -EINVAL;
++
++	f->pixelformat = V4L2_PIX_FMT_NV12;
++
++	return 0;
++}
++
++static int cedrus_enc_enum_framesizes(struct file *file, void *priv,
++				      struct v4l2_frmsizeenum *fsize)
++{
++	if (fsize->index)
++		return -EINVAL;
++	if (fsize->pixel_format != V4L2_PIX_FMT_NV12 &&
++	    fsize->pixel_format != V4L2_PIX_FMT_H264)
++		return -EINVAL;
++
++	fsize->type = V4L2_FRMSIZE_TYPE_STEPWISE;
++	fsize->stepwise.min_width = CEDRUS_ENC_MIN_WIDTH;
++	fsize->stepwise.max_width = CEDRUS_ENC_MAX_WIDTH;
++	fsize->stepwise.step_width = 16;
++	fsize->stepwise.min_height = CEDRUS_ENC_MIN_HEIGHT;
++	fsize->stepwise.max_height = CEDRUS_ENC_MAX_HEIGHT;
++	fsize->stepwise.step_height = 2;
++
++	return 0;
++}
++
++static int cedrus_enc_g_fmt_vid_cap(struct file *file, void *priv,
++				    struct v4l2_format *f)
++{
++	f->fmt.pix = cedrus_file2ctx(file)->dst_fmt;
++	return 0;
++}
++
++static int cedrus_enc_g_fmt_vid_out(struct file *file, void *priv,
++				    struct v4l2_format *f)
++{
++	f->fmt.pix = cedrus_file2ctx(file)->src_fmt;
++	return 0;
++}
++
++static int cedrus_enc_try_fmt_vid_cap(struct file *file, void *priv,
++				      struct v4l2_format *f)
++{
++	cedrus_enc_prepare_dst_fmt(cedrus_file2ctx(file), &f->fmt.pix);
++	return 0;
++}
++
++static int cedrus_enc_try_fmt_vid_out(struct file *file, void *priv,
++				      struct v4l2_format *f)
++{
++	cedrus_enc_prepare_src_fmt(&f->fmt.pix);
++	return 0;
++}
++
++static int cedrus_enc_s_fmt_vid_cap(struct file *file, void *priv,
++				    struct v4l2_format *f)
++{
++	struct cedrus_ctx *ctx = cedrus_file2ctx(file);
++	struct vb2_queue *vq = v4l2_m2m_get_vq(ctx->fh.m2m_ctx, f->type);
++
++	if (vb2_is_busy(vq))
++		return -EBUSY;
++
++	cedrus_enc_prepare_dst_fmt(ctx, &f->fmt.pix);
++	ctx->dst_fmt = f->fmt.pix;
++
++	return 0;
++}
++
++static int cedrus_enc_s_fmt_vid_out(struct file *file, void *priv,
++				    struct v4l2_format *f)
++{
++	struct cedrus_ctx *ctx = cedrus_file2ctx(file);
++	struct vb2_queue *vq = v4l2_m2m_get_vq(ctx->fh.m2m_ctx, f->type);
++	struct vb2_queue *peer_vq =
++		v4l2_m2m_get_vq(ctx->fh.m2m_ctx, V4L2_BUF_TYPE_VIDEO_CAPTURE);
++
++	if (vb2_is_busy(vq))
++		return -EBUSY;
++
++	cedrus_enc_prepare_src_fmt(&f->fmt.pix);
++	ctx->src_fmt = f->fmt.pix;
++
++	/* The coded format follows the picture size. */
++	if (!vb2_is_busy(peer_vq))
++		cedrus_enc_prepare_dst_fmt(ctx, &ctx->dst_fmt);
++
++	return 0;
++}
++
++static int cedrus_enc_g_parm(struct file *file, void *priv,
++			     struct v4l2_streamparm *a)
++{
++	struct cedrus_ctx *ctx = cedrus_file2ctx(file);
++
++	if (!V4L2_TYPE_IS_OUTPUT(a->type))
++		return -EINVAL;
++
++	a->parm.output.capability = V4L2_CAP_TIMEPERFRAME;
++	a->parm.output.timeperframe = ctx->enc->timeperframe;
++
++	return 0;
++}
++
++static int cedrus_enc_s_parm(struct file *file, void *priv,
++			     struct v4l2_streamparm *a)
++{
++	struct cedrus_ctx *ctx = cedrus_file2ctx(file);
++	struct v4l2_fract *tpf = &a->parm.output.timeperframe;
++
++	if (!V4L2_TYPE_IS_OUTPUT(a->type))
++		return -EINVAL;
++
++	if (!tpf->numerator || !tpf->denominator) {
++		tpf->numerator = 1;
++		tpf->denominator = 30;
++	}
++	ctx->enc->timeperframe = *tpf;
++	a->parm.output.capability = V4L2_CAP_TIMEPERFRAME;
++
++	return 0;
++}
++
++static int cedrus_enc_subscribe_event(struct v4l2_fh *fh,
++				      const struct v4l2_event_subscription *sub)
++{
++	switch (sub->type) {
++	case V4L2_EVENT_EOS:
++		return v4l2_event_subscribe(fh, sub, 2, NULL);
++	default:
++		return v4l2_ctrl_subscribe_event(fh, sub);
++	}
++}
++
++static const struct v4l2_ioctl_ops cedrus_enc_ioctl_ops = {
++	.vidioc_querycap		= cedrus_enc_querycap,
++
++	.vidioc_enum_fmt_vid_cap	= cedrus_enc_enum_fmt_vid_cap,
++	.vidioc_g_fmt_vid_cap		= cedrus_enc_g_fmt_vid_cap,
++	.vidioc_try_fmt_vid_cap		= cedrus_enc_try_fmt_vid_cap,
++	.vidioc_s_fmt_vid_cap		= cedrus_enc_s_fmt_vid_cap,
++
++	.vidioc_enum_fmt_vid_out	= cedrus_enc_enum_fmt_vid_out,
++	.vidioc_g_fmt_vid_out		= cedrus_enc_g_fmt_vid_out,
++	.vidioc_try_fmt_vid_out		= cedrus_enc_try_fmt_vid_out,
++	.vidioc_s_fmt_vid_out		= cedrus_enc_s_fmt_vid_out,
++
++	.vidioc_enum_framesizes		= cedrus_enc_enum_framesizes,
++	.vidioc_g_parm			= cedrus_enc_g_parm,
++	.vidioc_s_parm			= cedrus_enc_s_parm,
++
++	.vidioc_reqbufs			= v4l2_m2m_ioctl_reqbufs,
++	.vidioc_querybuf		= v4l2_m2m_ioctl_querybuf,
++	.vidioc_qbuf			= v4l2_m2m_ioctl_qbuf,
++	.vidioc_dqbuf			= v4l2_m2m_ioctl_dqbuf,
++	.vidioc_prepare_buf		= v4l2_m2m_ioctl_prepare_buf,
++	.vidioc_create_bufs		= v4l2_m2m_ioctl_create_bufs,
++	.vidioc_expbuf			= v4l2_m2m_ioctl_expbuf,
++
++	.vidioc_streamon		= v4l2_m2m_ioctl_streamon,
++	.vidioc_streamoff		= v4l2_m2m_ioctl_streamoff,
++
++	.vidioc_try_encoder_cmd		= v4l2_m2m_ioctl_try_encoder_cmd,
++	.vidioc_encoder_cmd		= v4l2_m2m_ioctl_encoder_cmd,
++
++	.vidioc_subscribe_event		= cedrus_enc_subscribe_event,
++	.vidioc_unsubscribe_event	= v4l2_event_unsubscribe,
++};
++
++/* Queues */
++
++static int cedrus_enc_queue_setup(struct vb2_queue *vq, unsigned int *nbufs,
++				  unsigned int *nplanes, unsigned int sizes[],
++				  struct device *alloc_devs[])
++{
++	struct cedrus_ctx *ctx = vb2_get_drv_priv(vq);
++	struct v4l2_pix_format *pix = V4L2_TYPE_IS_OUTPUT(vq->type) ?
++				      &ctx->src_fmt : &ctx->dst_fmt;
++
++	if (*nplanes) {
++		if (sizes[0] < pix->sizeimage)
++			return -EINVAL;
++	} else {
++		sizes[0] = pix->sizeimage;
++		*nplanes = 1;
++	}
++
++	return 0;
++}
++
++static int cedrus_enc_buf_out_validate(struct vb2_buffer *vb)
++{
++	to_vb2_v4l2_buffer(vb)->field = V4L2_FIELD_NONE;
++	return 0;
++}
++
++static int cedrus_enc_buf_prepare(struct vb2_buffer *vb)
++{
++	struct cedrus_ctx *ctx = vb2_get_drv_priv(vb->vb2_queue);
++	struct v4l2_pix_format *pix = V4L2_TYPE_IS_OUTPUT(vb->vb2_queue->type) ?
++				      &ctx->src_fmt : &ctx->dst_fmt;
++	dma_addr_t addr = vb2_dma_contig_plane_dma_addr(vb, 0);
++
++	if (vb2_plane_size(vb, 0) < pix->sizeimage)
++		return -EINVAL;
++
++	/* The encoder block addresses its buffers in 256-byte units. */
++	if (V4L2_TYPE_IS_CAPTURE(vb->vb2_queue->type) && (addr & 0xff))
++		return -EINVAL;
++
++	return 0;
++}
++
++static void cedrus_enc_buf_queue(struct vb2_buffer *vb)
++{
++	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
++	struct cedrus_ctx *ctx = vb2_get_drv_priv(vb->vb2_queue);
++
++	if (V4L2_TYPE_IS_CAPTURE(vb->vb2_queue->type) &&
++	    v4l2_m2m_dst_buf_is_last(ctx->fh.m2m_ctx)) {
++		vb2_set_plane_payload(vb, 0, 0);
++		v4l2_m2m_last_buffer_done(ctx->fh.m2m_ctx, vbuf);
++		return;
++	}
++
++	v4l2_m2m_buf_queue(ctx->fh.m2m_ctx, vbuf);
++}
++
++static void cedrus_enc_queue_cleanup(struct vb2_queue *vq, u32 state)
++{
++	struct cedrus_ctx *ctx = vb2_get_drv_priv(vq);
++	struct vb2_v4l2_buffer *vbuf;
++
++	for (;;) {
++		if (V4L2_TYPE_IS_OUTPUT(vq->type))
++			vbuf = v4l2_m2m_src_buf_remove(ctx->fh.m2m_ctx);
++		else
++			vbuf = v4l2_m2m_dst_buf_remove(ctx->fh.m2m_ctx);
++
++		if (!vbuf)
++			return;
++
++		v4l2_m2m_buf_done(vbuf, state);
++	}
++}
++
++static int cedrus_enc_start_streaming(struct vb2_queue *vq,
++				      unsigned int count)
++{
++	struct cedrus_ctx *ctx = vb2_get_drv_priv(vq);
++	struct cedrus_enc_ctx *enc = ctx->enc;
++	int ret;
++
++	v4l2_m2m_update_start_streaming_state(ctx->fh.m2m_ctx, vq);
++
++	if (!V4L2_TYPE_IS_OUTPUT(vq->type))
++		return 0;
++
++	enc->width_mbs = DIV_ROUND_UP(ctx->src_fmt.width, 16);
++	enc->height_mbs = DIV_ROUND_UP(ctx->src_fmt.height, 16);
++	enc->cur = 0;
++	enc->have_ref = false;
++	enc->gop_index = 0;
++	enc->sps_pps_sent = false;
++	enc->force_key = false;
++
++	ret = cedrus_enc_buffers_alloc(ctx);
++	if (ret)
++		goto err_cleanup;
++
++	ret = pm_runtime_resume_and_get(ctx->dev->dev);
++	if (ret < 0)
++		goto err_free;
++
++	return 0;
++
++err_free:
++	cedrus_enc_buffers_free(ctx);
++err_cleanup:
++	cedrus_enc_queue_cleanup(vq, VB2_BUF_STATE_QUEUED);
++	return ret;
++}
++
++static void cedrus_enc_stop_streaming(struct vb2_queue *vq)
++{
++	struct cedrus_ctx *ctx = vb2_get_drv_priv(vq);
++
++	cedrus_enc_queue_cleanup(vq, VB2_BUF_STATE_ERROR);
++
++	v4l2_m2m_update_stop_streaming_state(ctx->fh.m2m_ctx, vq);
++
++	if (V4L2_TYPE_IS_OUTPUT(vq->type)) {
++		pm_runtime_put(ctx->dev->dev);
++		cedrus_enc_buffers_free(ctx);
++	}
++}
++
++static const struct vb2_ops cedrus_enc_qops = {
++	.queue_setup		= cedrus_enc_queue_setup,
++	.buf_out_validate	= cedrus_enc_buf_out_validate,
++	.buf_prepare		= cedrus_enc_buf_prepare,
++	.buf_queue		= cedrus_enc_buf_queue,
++	.start_streaming	= cedrus_enc_start_streaming,
++	.stop_streaming		= cedrus_enc_stop_streaming,
++};
++
++static int cedrus_enc_queue_init(void *priv, struct vb2_queue *src_vq,
++				 struct vb2_queue *dst_vq)
++{
++	struct cedrus_ctx *ctx = priv;
++	int ret;
++
++	src_vq->type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
++	src_vq->io_modes = VB2_MMAP | VB2_DMABUF;
++	src_vq->drv_priv = ctx;
++	src_vq->buf_struct_size = sizeof(struct cedrus_buffer);
++	src_vq->ops = &cedrus_enc_qops;
++	src_vq->mem_ops = &vb2_dma_contig_memops;
++	src_vq->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
++	src_vq->lock = &ctx->dev->dev_mutex;
++	src_vq->dev = ctx->dev->dev;
++
++	ret = vb2_queue_init(src_vq);
++	if (ret)
++		return ret;
++
++	dst_vq->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
++	dst_vq->io_modes = VB2_MMAP | VB2_DMABUF;
++	dst_vq->drv_priv = ctx;
++	dst_vq->buf_struct_size = sizeof(struct cedrus_buffer);
++	dst_vq->ops = &cedrus_enc_qops;
++	dst_vq->mem_ops = &vb2_dma_contig_memops;
++	dst_vq->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
++	dst_vq->lock = &ctx->dev->dev_mutex;
++	dst_vq->dev = ctx->dev->dev;
++
++	return vb2_queue_init(dst_vq);
++}
++
++/* Controls */
++
++static int cedrus_enc_s_ctrl(struct v4l2_ctrl *ctrl)
++{
++	struct cedrus_ctx *ctx = container_of(ctrl->handler, struct cedrus_ctx,
++					      hdl);
++
++	switch (ctrl->id) {
++	case V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME:
++		ctx->enc->force_key = true;
++		break;
++	}
++
++	return 0;
++}
++
++static const struct v4l2_ctrl_ops cedrus_enc_ctrl_ops = {
++	.s_ctrl = cedrus_enc_s_ctrl,
++};
++
++static int cedrus_enc_init_ctrls(struct cedrus_ctx *ctx)
++{
++	const struct v4l2_ctrl_ops *ops = &cedrus_enc_ctrl_ops;
++	struct v4l2_ctrl_handler *hdl = &ctx->hdl;
++	struct cedrus_enc_ctx *enc = ctx->enc;
++
++	v4l2_ctrl_handler_init(hdl, 16);
++
++	enc->ctrl_profile = v4l2_ctrl_new_std_menu(hdl, ops,
++		V4L2_CID_MPEG_VIDEO_H264_PROFILE,
++		V4L2_MPEG_VIDEO_H264_PROFILE_MAIN,
++		~(BIT(V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE) |
++		  BIT(V4L2_MPEG_VIDEO_H264_PROFILE_CONSTRAINED_BASELINE) |
++		  BIT(V4L2_MPEG_VIDEO_H264_PROFILE_MAIN)),
++		V4L2_MPEG_VIDEO_H264_PROFILE_MAIN);
++	enc->ctrl_level = v4l2_ctrl_new_std_menu(hdl, ops,
++		V4L2_CID_MPEG_VIDEO_H264_LEVEL,
++		V4L2_MPEG_VIDEO_H264_LEVEL_5_1, 0,
++		V4L2_MPEG_VIDEO_H264_LEVEL_4_2);
++	v4l2_ctrl_new_std_menu(hdl, ops, V4L2_CID_MPEG_VIDEO_H264_ENTROPY_MODE,
++		V4L2_MPEG_VIDEO_H264_ENTROPY_MODE_CAVLC,
++		~BIT(V4L2_MPEG_VIDEO_H264_ENTROPY_MODE_CAVLC),
++		V4L2_MPEG_VIDEO_H264_ENTROPY_MODE_CAVLC);
++	enc->ctrl_qp_i = v4l2_ctrl_new_std(hdl, ops,
++		V4L2_CID_MPEG_VIDEO_H264_I_FRAME_QP, 0, 51, 1, 26);
++	enc->ctrl_qp_p = v4l2_ctrl_new_std(hdl, ops,
++		V4L2_CID_MPEG_VIDEO_H264_P_FRAME_QP, 0, 51, 1, 28);
++	enc->ctrl_qp_min = v4l2_ctrl_new_std(hdl, ops,
++		V4L2_CID_MPEG_VIDEO_H264_MIN_QP, 0, 51, 1, 0);
++	enc->ctrl_qp_max = v4l2_ctrl_new_std(hdl, ops,
++		V4L2_CID_MPEG_VIDEO_H264_MAX_QP, 0, 51, 1, 51);
++	enc->ctrl_gop = v4l2_ctrl_new_std(hdl, ops,
++		V4L2_CID_MPEG_VIDEO_GOP_SIZE, 1, 1024, 1, 60);
++	enc->ctrl_prepend = v4l2_ctrl_new_std(hdl, ops,
++		V4L2_CID_MPEG_VIDEO_PREPEND_SPSPPS_TO_IDR, 0, 1, 1, 1);
++	v4l2_ctrl_new_std(hdl, ops, V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME,
++			  0, 0, 0, 0);
++	v4l2_ctrl_new_std(hdl, ops, V4L2_CID_MPEG_VIDEO_B_FRAMES, 0, 0, 1, 0);
++	v4l2_ctrl_new_std_menu(hdl, ops, V4L2_CID_MPEG_VIDEO_HEADER_MODE,
++		V4L2_MPEG_VIDEO_HEADER_MODE_JOINED_WITH_1ST_FRAME,
++		~BIT(V4L2_MPEG_VIDEO_HEADER_MODE_JOINED_WITH_1ST_FRAME),
++		V4L2_MPEG_VIDEO_HEADER_MODE_JOINED_WITH_1ST_FRAME);
++	/*
++	 * Fixed QP only. Bitrate and frame-level rate control are accepted so
++	 * generic clients configure cleanly; they do not change the output.
++	 */
++	v4l2_ctrl_new_std(hdl, ops, V4L2_CID_MPEG_VIDEO_BITRATE,
++			  1, 100000000, 1, 8000000);
++	v4l2_ctrl_new_std(hdl, ops, V4L2_CID_MPEG_VIDEO_FRAME_RC_ENABLE,
++			  0, 1, 1, 0);
++	v4l2_ctrl_new_std(hdl, ops, V4L2_CID_MIN_BUFFERS_FOR_OUTPUT,
++			  1, 32, 1, 1);
++
++	if (hdl->error) {
++		int ret = hdl->error;
++
++		v4l2_ctrl_handler_free(hdl);
++		return ret;
++	}
++
++	ctx->fh.ctrl_handler = hdl;
++	return v4l2_ctrl_handler_setup(hdl);
++}
++
++/* File operations */
++
++static int cedrus_enc_open(struct file *file)
++{
++	struct cedrus_dev *dev = video_drvdata(file);
++	struct cedrus_ctx *ctx;
++	int ret;
++
++	if (mutex_lock_interruptible(&dev->dev_mutex))
++		return -ERESTARTSYS;
++
++	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
++	if (!ctx) {
++		ret = -ENOMEM;
++		goto err_unlock;
++	}
++
++	ctx->enc = kzalloc(sizeof(*ctx->enc), GFP_KERNEL);
++	if (!ctx->enc) {
++		ret = -ENOMEM;
++		goto err_free_ctx;
++	}
++
++	v4l2_fh_init(&ctx->fh, video_devdata(file));
++	ctx->dev = dev;
++	ctx->bit_depth = 8;
++	ctx->current_codec = &cedrus_enc_ops_h264;
++	ctx->enc->timeperframe = (struct v4l2_fract){ 1, 30 };
++
++	ctx->src_fmt.width = 1280;
++	ctx->src_fmt.height = 720;
++	cedrus_enc_prepare_src_fmt(&ctx->src_fmt);
++	ctx->src_fmt.colorspace = V4L2_COLORSPACE_REC709;
++	cedrus_enc_prepare_dst_fmt(ctx, &ctx->dst_fmt);
++
++	ret = cedrus_enc_init_ctrls(ctx);
++	if (ret)
++		goto err_free_enc;
++
++	ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(dev->m2m_dev, ctx,
++					    &cedrus_enc_queue_init);
++	if (IS_ERR(ctx->fh.m2m_ctx)) {
++		ret = PTR_ERR(ctx->fh.m2m_ctx);
++		goto err_free_ctrls;
++	}
++
++	v4l2_fh_add(&ctx->fh, file);
++	mutex_unlock(&dev->dev_mutex);
++
++	return 0;
++
++err_free_ctrls:
++	v4l2_ctrl_handler_free(&ctx->hdl);
++err_free_enc:
++	v4l2_fh_exit(&ctx->fh);
++	kfree(ctx->enc);
++err_free_ctx:
++	kfree(ctx);
++err_unlock:
++	mutex_unlock(&dev->dev_mutex);
++	return ret;
++}
++
++static int cedrus_enc_release(struct file *file)
++{
++	struct cedrus_dev *dev = video_drvdata(file);
++	struct cedrus_ctx *ctx = cedrus_file2ctx(file);
++
++	mutex_lock(&dev->dev_mutex);
++
++	v4l2_fh_del(&ctx->fh, file);
++	v4l2_m2m_ctx_release(ctx->fh.m2m_ctx);
++	v4l2_ctrl_handler_free(&ctx->hdl);
++	v4l2_fh_exit(&ctx->fh);
++	cedrus_enc_buffers_free(ctx);
++	kfree(ctx->enc);
++	kfree(ctx);
++
++	mutex_unlock(&dev->dev_mutex);
++
++	return 0;
++}
++
++static const struct v4l2_file_operations cedrus_enc_fops = {
++	.owner		= THIS_MODULE,
++	.open		= cedrus_enc_open,
++	.release	= cedrus_enc_release,
++	.poll		= v4l2_m2m_fop_poll,
++	.unlocked_ioctl	= video_ioctl2,
++	.mmap		= v4l2_m2m_fop_mmap,
++};
++
++const struct video_device cedrus_enc_video_device = {
++	.name		= CEDRUS_NAME "-enc",
++	.vfl_dir	= VFL_DIR_M2M,
++	.fops		= &cedrus_enc_fops,
++	.ioctl_ops	= &cedrus_enc_ioctl_ops,
++	.minor		= -1,
++	.release	= video_device_release_empty,
++	.device_caps	= V4L2_CAP_VIDEO_M2M | V4L2_CAP_STREAMING,
++};
+diff --git a/drivers/staging/media/sunxi/cedrus/cedrus_enc.h b/drivers/staging/media/sunxi/cedrus/cedrus_enc.h
+new file mode 100644
+index 0000000..8cbcfc6
+--- /dev/null
++++ b/drivers/staging/media/sunxi/cedrus/cedrus_enc.h
+@@ -0,0 +1,16 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/*
++ * Cedrus VPU driver: H.264 encoder video node
++ */
++
++#ifndef _CEDRUS_ENC_H_
++#define _CEDRUS_ENC_H_
++
++struct cedrus_dev;
++struct cedrus_ctx;
++
++extern const struct video_device cedrus_enc_video_device;
++
++void cedrus_enc_run(struct cedrus_ctx *ctx);
++
++#endif
+diff --git a/drivers/staging/media/sunxi/cedrus/cedrus_hw.c b/drivers/staging/media/sunxi/cedrus/cedrus_hw.c
+index bb9bb67..72e3abd 100644
+--- a/drivers/staging/media/sunxi/cedrus/cedrus_hw.c
++++ b/drivers/staging/media/sunxi/cedrus/cedrus_hw.c
+@@ -177,6 +177,9 @@ static irqreturn_t cedrus_irq(int irq, void *data)
+ 	else
+ 		state = VB2_BUF_STATE_DONE;
+ 
++	if (ctx->current_codec->finish)
++		ctx->current_codec->finish(ctx, state);
++
+ 	v4l2_m2m_buf_done_and_job_finish(ctx->dev->m2m_dev, ctx->fh.m2m_ctx,
+ 					 state);
+ 
+@@ -197,6 +200,8 @@ void cedrus_watchdog(struct work_struct *work)
+ 
+ 	v4l2_err(&dev->v4l2_dev, "frame processing timed out!\n");
+ 	reset_control_reset(dev->rstc);
++	if (ctx->current_codec->finish)
++		ctx->current_codec->finish(ctx, VB2_BUF_STATE_ERROR);
+ 	v4l2_m2m_buf_done_and_job_finish(ctx->dev->m2m_dev, ctx->fh.m2m_ctx,
+ 					 VB2_BUF_STATE_ERROR);
+ }
+diff --git a/drivers/staging/media/sunxi/cedrus/cedrus_regs.h b/drivers/staging/media/sunxi/cedrus/cedrus_regs.h
+index c3dcd93..b081fed 100644
+--- a/drivers/staging/media/sunxi/cedrus/cedrus_regs.h
++++ b/drivers/staging/media/sunxi/cedrus/cedrus_regs.h
+@@ -720,4 +720,95 @@
+ #define VE_AVC_REC_SLUMA		0xbbc
+ #define VE_AVC_MB_INFO			0xbc0
+ 
++/*
++ * H.264 encoder (ISP input stage at 0xa00, AVC encoder at 0xb00).
++ *
++ * Layout after Bootlin's V3s encoder. On the H616 VE the encoder-block
++ * address registers take the bus address >> 8 (VE_ENC_ADDR), while the ISP
++ * input addresses stay plain bus addresses, and VE_ISP_SCALER_SIZE counts in
++ * half macroblocks and sets the encoder's macroblock grid.
++ */
++
++#define VE_RESET_REG				0x04
++#define VE_RESET_ENCODER_RESET			BIT(24)
++#define VE_RESET_SYNC_IDLE			BIT(9)
++#define VE_RESET_CACHE_SYNC_IDLE		BIT(8)
++
++#define VE_MODE_ENC_ENABLE			BIT(7)
++#define VE_MODE_ENC_ISP_ENABLE			BIT(6)
++
++#define VE_ENC_ADDR(a)				((u32)((a) >> 8))
++
++#define VE_ISP_PIC_INFO_REG			0xa00
++#define VE_ISP_PIC_INFO_WIDTH_MBS(v)		SHIFT_AND_MASK_BITS(v, 31, 16)
++#define VE_ISP_PIC_INFO_HEIGHT_MBS(v)		SHIFT_AND_MASK_BITS(v, 15, 0)
++#define VE_ISP_PIC_STRIDE0_REG			0xa04
++#define VE_ISP_PIC_STRIDE0_INPUT_STRIDE_MBS(v)	SHIFT_AND_MASK_BITS(v, 26, 16)
++#define VE_ISP_CTRL_REG				0xa08
++#define VE_ISP_CTRL_FORMAT_YUV420SP		(0 << 27)
++#define VE_ISP_SCALER_SIZE_REG			0xa2c
++#define VE_ISP_SCALER_SIZE_HEIGHT(v)		SHIFT_AND_MASK_BITS(v, 26, 16)
++#define VE_ISP_SCALER_SIZE_WIDTH(v)		SHIFT_AND_MASK_BITS(v, 10, 0)
++#define VE_ISP_INPUT_LUMA_ADDR_REG		0xa78
++#define VE_ISP_INPUT_CHROMA0_ADDR_REG		0xa7c
++
++#define VE_ENC_AVC_PARA0_REG			0xb04
++#define VE_ENC_AVC_PARA0_EPTB_DIS		BIT(31)
++#define VE_ENC_AVC_PARA0_ENTROPY_CODING_CABAC	BIT(8)
++#define VE_ENC_AVC_PARA0_SLICE_TYPE_I		(0 << 4)
++#define VE_ENC_AVC_PARA0_SLICE_TYPE_P		(1 << 4)
++#define VE_ENC_AVC_PARA1_REG			0xb08
++#define VE_ENC_AVC_PARA1_QP_CHROMA_OFFSET0(v)	SHIFT_AND_MASK_BITS(v, 18, 16)
++#define VE_ENC_AVC_PARA1_STRIDE_MBS_DIV_48(v)	SHIFT_AND_MASK_BITS(v, 13, 10)
++#define VE_ENC_AVC_PARA1_FIXED_QP(v)		SHIFT_AND_MASK_BITS(v, 5, 0)
++#define VE_ENC_AVC_PARA2_REG			0xb0c
++#define VE_ENC_AVC_ME_PARA_REG			0xb10
++#define VE_ENC_AVC_ME_PARA_WB_MV_INFO_DIS	BIT(16)
++#define VE_ENC_AVC_ME_PARA_FME_SEARCH_LEVEL(v)	SHIFT_AND_MASK_BITS(v, 2, 1)
++#define VE_ENC_AVC_INT_EN_REG			0xb14
++#define VE_ENC_AVC_INT_EN_STALL			BIT(1)
++#define VE_ENC_AVC_INT_EN_FINISH		BIT(0)
++#define VE_ENC_AVC_STARTTRIG_REG		0xb18
++#define VE_ENC_AVC_STARTTRIG_NUM_BITS(v)	SHIFT_AND_MASK_BITS(v, 13, 8)
++#define VE_ENC_AVC_STARTTRIG_TYPE_PUT_BITS	(1 << 0)
++#define VE_ENC_AVC_STARTTRIG_TYPE_ENC_START	(8 << 0)
++#define VE_ENC_AVC_STATUS_REG			0xb1c
++#define VE_ENC_AVC_STATUS_PUT_BITS_READY	BIT(9)
++#define VE_ENC_AVC_STATUS_OVERTIME		BIT(3)
++#define VE_ENC_AVC_STATUS_OVERTIME_MB		BIT(2)
++#define VE_ENC_AVC_STATUS_STALL			BIT(1)
++#define VE_ENC_AVC_STATUS_FINISH		BIT(0)
++#define VE_ENC_AVC_STATUS_MASK			(VE_ENC_AVC_STATUS_OVERTIME | \
++						 VE_ENC_AVC_STATUS_OVERTIME_MB | \
++						 VE_ENC_AVC_STATUS_STALL | \
++						 VE_ENC_AVC_STATUS_FINISH)
++#define VE_ENC_AVC_PUTBITSDATA_REG		0xb20
++#define VE_ENC_AVC_OVERTIME_MB_REG		0xb24
++#define VE_ENC_AVC_CYCLIC_INTRA_REFRESH_REG	0xb28
++#define VE_ENC_AVC_RC_INIT_REG			0xb2c
++#define VE_ENC_AVC_RC_MAD_TH0_REG		0xb30
++#define VE_ENC_AVC_RC_MAD_TH1_REG		0xb34
++#define VE_ENC_AVC_RC_MAD_TH2_REG		0xb38
++#define VE_ENC_AVC_RC_MAD_TH3_REG		0xb3c
++#define VE_ENC_AVC_DYNAMIC_ME_PAR0_REG		0xb48
++#define VE_ENC_AVC_DYNAMIC_ME_PAR1_REG		0xb4c
++#define VE_ENC_AVC_MAD_REG			0xb50
++#define VE_ENC_AVC_RESIDUAL_BITS_REG		0xb54
++#define VE_ENC_AVC_HEADER_BITS_REG		0xb58
++#define VE_ENC_AVC_ME_INFO_REG			0xb5c
++#define VE_ENC_AVC_MV_BUF_ADDR_REG		0xb60
++#define VE_ENC_AVC_STM_START_ADDR_REG		0xb80
++#define VE_ENC_AVC_STM_END_ADDR_REG		0xb84
++#define VE_ENC_AVC_STM_BIT_OFFSET_REG		0xb88
++#define VE_ENC_AVC_STM_BIT_MAX_REG		0xb8c
++#define VE_ENC_AVC_STM_BIT_LEN_REG		0xb90
++#define VE_ENC_AVC_REF0_ADDR_Y_REG		0xba0
++#define VE_ENC_AVC_REF0_ADDR_C_REG		0xba4
++#define VE_ENC_AVC_REC_ADDR_Y_REG		0xbb0
++#define VE_ENC_AVC_REC_ADDR_C_REG		0xbb4
++#define VE_ENC_AVC_SUBPIX_ADDR_LAST_REG		0xbb8
++#define VE_ENC_AVC_SUBPIX_ADDR_NEW_REG		0xbbc
++#define VE_ENC_AVC_MB_INFO_ADDR_REG		0xbc0
++#define VE_ENC_AVC_DEBLK_ADDR_REG		0xbc4
++
+ #endif
