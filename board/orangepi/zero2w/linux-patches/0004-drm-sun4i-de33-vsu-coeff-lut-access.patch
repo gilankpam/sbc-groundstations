@@ -1,0 +1,97 @@
+drm/sun4i: de33: open the LUT access window for VSU coefficient writes
+
+The DE33 keeps the VI scaler (VSU) coefficient tables in SRAM that
+drops CPU (AHB) writes unless bit 0 of the DE top's debug control
+register (0xe0 in the clock register space) is set. The BSP never needs
+it because it programs the DE through the RCQ, but mainline writes the
+tables with plain MMIO, so on DE33 they never land and the scaler runs
+on whatever the SRAM held at power-up. After a cold boot that is random
+about half the time: NV12 video on the VI plane comes out with wrong
+colours and a high-passed luma (grey reads white/green, a luma ramp
+reads flat), even at 1:1, since NV12 always goes through the VSU for
+chroma upsampling. A soft reboot keeps the bad SRAM.
+
+Set the bit around the coefficient writes and clear it again, reaching
+the register through the plane-mapping syscon the planes driver already
+holds; let the clock driver's regmap expose it.
+
+Validated on an Orange Pi Zero 2W (H618), kernel 6.18.35: on a bad cold
+boot, writing the same tables with the bit clear changes nothing;
+writing them with the bit set, or holding the bit for one second while
+the kernel's own per-commit writes run, restores a correct picture.
+
+--- a/drivers/clk/sunxi-ng/ccu-sun8i-de2.c
++++ b/drivers/clk/sunxi-ng/ccu-sun8i-de2.c
+@@ -262,6 +262,7 @@
+ #define SUN50I_DE33_CHN2CORE_REG 0x24
+ #define SUN50I_DE33_PORT02CHN_REG 0x28
+ #define SUN50I_DE33_PORT12CHN_REG 0x2c
++#define SUN50I_DE33_DEBUG_CTL_REG 0xe0
+ 
+ static bool sun8i_de2_ccu_regmap_accessible_reg(struct device *dev,
+ 						unsigned int reg)
+@@ -270,6 +271,7 @@
+ 	case SUN50I_DE33_CHN2CORE_REG:
+ 	case SUN50I_DE33_PORT02CHN_REG:
+ 	case SUN50I_DE33_PORT12CHN_REG:
++	case SUN50I_DE33_DEBUG_CTL_REG:
+ 		return true;
+ 	default:
+ 		return false;
+--- a/drivers/gpu/drm/sun4i/sun50i_planes.c
++++ b/drivers/gpu/drm/sun4i/sun50i_planes.c
+@@ -76,6 +76,7 @@
+ 			return ERR_CAST(layer);
+ 		}
+ 
++		layer->top = planes->mapping;
+ 		drm_planes[i] = &layer->plane;
+ 	}
+ 
+--- a/drivers/gpu/drm/sun4i/sun8i_mixer.h
++++ b/drivers/gpu/drm/sun4i/sun8i_mixer.h
+@@ -16,6 +16,14 @@
+ #define SUN8I_MIXER_SIZE(w, h)			(((h) - 1) << 16 | ((w) - 1))
+ #define SUN8I_MIXER_COORD(x, y)			((y) << 16 | (x))
+ 
++/*
++ * DE33 top debug control, in the clock register space. Bit 0 opens the
++ * SRAM-backed tables (scaler coefficients, LUTs) to CPU (AHB) access;
++ * with it clear, writes to those tables are dropped.
++ */
++#define SUN50I_DE33_DEBUG_CTL_REG		0xe0
++#define SUN50I_DE33_DEBUG_CTL_LUT_AHB		BIT(0)
++
+ #define SUN8I_MIXER_GLOBAL_CTL			0x0
+ #define SUN8I_MIXER_GLOBAL_STATUS		0x4
+ #define SUN8I_MIXER_GLOBAL_DBUFF		0x8
+@@ -230,6 +238,7 @@
+ 	int				channel;
+ 	int				overlay;
+ 	struct regmap			*regs;
++	struct regmap			*top;		/* DE33 only: DE top, for DEBUG_CTL */
+ 	const struct sun8i_layer_cfg	*cfg;
+ 	struct drm_property		*ctm_prop;	/* DE33 VI only */
+ };
+--- a/drivers/gpu/drm/sun4i/sun8i_vi_scaler.c
++++ b/drivers/gpu/drm/sun4i/sun8i_vi_scaler.c
+@@ -997,6 +997,19 @@
+ 		     SUN8I_SCALER_VSU_CHPHASE(base), chphase);
+ 	regmap_write(layer->regs,
+ 		     SUN8I_SCALER_VSU_CVPHASE(base), cvphase);
++	/*
++	 * The DE33 coefficient tables live in SRAM that drops CPU writes
++	 * unless the DE top's LUT access bit is set. Without it the scaler
++	 * runs on whatever that SRAM held at power-up: after a cold boot
++	 * that is often garbage, and the picture comes out with wrong
++	 * colours and a high-passed luma until some write happens to land.
++	 */
++	if (layer->top)
++		regmap_set_bits(layer->top, SUN50I_DE33_DEBUG_CTL_REG,
++				SUN50I_DE33_DEBUG_CTL_LUT_AHB);
+ 	sun8i_vi_scaler_set_coeff(layer->regs, base,
+ 				  hscale, vscale, format);
++	if (layer->top)
++		regmap_clear_bits(layer->top, SUN50I_DE33_DEBUG_CTL_REG,
++				  SUN50I_DE33_DEBUG_CTL_LUT_AHB);
+ }
