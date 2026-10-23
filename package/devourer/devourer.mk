@@ -7,10 +7,15 @@
 # gilankpam/devourer master, resolved to a hash on every make invocation -- see
 # the note in package/mabur/mabur.mk, which tracks its master the same way.
 # Override with `make DEVOURER_VERSION=<sha-or-tag> mabur-rebuild`.
+# A DEVOURER_VERSION already in the environment wins: the release workflow
+# resolves the commit once and passes it in, so the release it names is the
+# commit that was built even if master moves mid-build.
+ifeq ($(DEVOURER_VERSION),)
 DEVOURER_MASTER_SHA := $(shell GIT_TERMINAL_PROMPT=0 timeout 15 \
 	git ls-remote https://github.com/gilankpam/devourer.git \
 	refs/heads/master 2>/dev/null | cut -f1)
 DEVOURER_VERSION = $(or $(DEVOURER_MASTER_SHA),3b15c7ae8dc0fe3608ed42a95750a1b4eb605704)
+endif
 DEVOURER_SITE = https://github.com/gilankpam/devourer.git
 DEVOURER_SITE_METHOD = git
 DEVOURER_LICENSE = GPL-2.0

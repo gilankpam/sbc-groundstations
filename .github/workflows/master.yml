@@ -10,9 +10,6 @@ on:
       - master
   workflow_dispatch:
 
-env:
-  TAG_NAME: latest
-
 # A newer push to the same PR supersedes the running build. Master and
 # tag builds are never cancelled, so every release still gets published.
 concurrency:
@@ -20,9 +17,37 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Resolve mabur and devourer master once, for every board. The package .mk
+  # files take MABUR_VERSION/DEVOURER_VERSION from the environment, so all the
+  # images are built from exactly these commits and the release is named
+  # after the mabur one -- the same mabur-<sha8> name openipc-builder gives
+  # the VTX firmware built from that commit, which is how a VTX and a GS
+  # release are matched.
+  resolve:
+    name: Resolve sources
+    runs-on: ubuntu-latest
+    outputs:
+      mabur: ${{ steps.sha.outputs.mabur }}
+      devourer: ${{ steps.sha.outputs.devourer }}
+      tag: ${{ steps.sha.outputs.tag }}
+    steps:
+      - id: sha
+        run: |
+          MABUR=$(git ls-remote https://github.com/gilankpam/mabur.git refs/heads/master | cut -f1)
+          DEVOURER=$(git ls-remote https://github.com/gilankpam/devourer.git refs/heads/master | cut -f1)
+          if [ -z "$MABUR" ] || [ -z "$DEVOURER" ]; then
+            exit 1
+          fi
+          echo "mabur=$MABUR" >> $GITHUB_OUTPUT
+          echo "devourer=$DEVOURER" >> $GITHUB_OUTPUT
+          echo "tag=mabur-${MABUR:0:8}" >> $GITHUB_OUTPUT
+
   buildroot:
     name: Build Firmware
-    runs-on: ubuntu-latest
+    needs: resolve
+    # Pinned: the ubuntu-26.04 image behind ubuntu-latest has no
+    # qemu-user-static package.
+    runs-on: ubuntu-24.04
 
     strategy:
       fail-fast: false
@@ -31,6 +56,7 @@ jobs:
           - radxa_zero3
           - runcam_wifilink
           - emax_wyvern-link
+          - orangepi_zero2w
 
     steps:
 
@@ -64,6 +90,9 @@ jobs:
 
       - name: Build firmware
         working-directory: /mnt/workspace
+        env:
+          MABUR_VERSION: ${{ needs.resolve.outputs.mabur }}
+          DEVOURER_VERSION: ${{ needs.resolve.outputs.devourer }}
         run: |
           export GIT_HASH=$(git rev-parse --short $GITHUB_SHA)
           export GIT_BRANCH=${GITHUB_REF_NAME}
@@ -106,12 +135,13 @@ jobs:
           retention-days: 7
 
   release-on-master:
-    name: Release Latest (on master merge)
+    name: Release mabur build (manual run)
     runs-on: ubuntu-latest
-    needs: [buildroot]
-    # Only master: a push, or a manual run (workflow_dispatch) on master.
-    # Never PRs; tags go to release-on-tag.
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/master'
+    needs: [resolve, buildroot]
+    # Only a manual run (workflow_dispatch) on master publishes; a push just
+    # builds. Never PRs; tags go to release-on-tag. A rerun against the same
+    # mabur commit replaces that release's files.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'
     
     steps:
       - name: Checkout
@@ -122,16 +152,22 @@ jobs:
         with:
           path: artifacts/
 
-      - name: Create/Update Latest Release
+      - name: Create/Update mabur release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: buildroot-snapshot
+          tag_name: ${{ needs.resolve.outputs.tag }}
+          name: ${{ needs.resolve.outputs.tag }}
           body: |
-            Snapshot development build from master branch
-            Commit: ${{ github.sha }}
+            Ground-station images for `${{ needs.resolve.outputs.tag }}`, built from mabur `${{ needs.resolve.outputs.mabur }}`.
+            Flash them with the VTX release of the same name:
+            https://github.com/gilankpam/openipc-builder/releases/tag/${{ needs.resolve.outputs.tag }}
+
+            - mabur: `${{ needs.resolve.outputs.mabur }}`
+            - devourer: `${{ needs.resolve.outputs.devourer }}`
+            - Builder commit: `${{ github.sha }}`
           files: artifacts/**/*
-          prerelease: true
-          overwrite: true
+          prerelease: false
+          make_latest: true
 
   release-on-tag:
     name: Release Version (on tag)

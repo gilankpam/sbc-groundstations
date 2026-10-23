@@ -10,10 +10,15 @@
 # same way; nothing pins the two in step any more. The fallback hash is only
 # reached offline; GIT_TERMINAL_PROMPT/timeout stop a dead remote from hanging
 # every make run. Override with `make MABUR_VERSION=<sha-or-tag> mabur-rebuild`.
+# A MABUR_VERSION already in the environment wins: the release workflow
+# resolves the commit once and passes it in, so the release it names is the
+# commit that was built even if master moves mid-build.
+ifeq ($(MABUR_VERSION),)
 MABUR_MASTER_SHA := $(shell GIT_TERMINAL_PROMPT=0 timeout 15 \
 	git ls-remote https://github.com/gilankpam/mabur.git \
 	refs/heads/master 2>/dev/null | cut -f1)
 MABUR_VERSION = $(or $(MABUR_MASTER_SHA),5790043765a30dc060822c0f8685b804e60fa402)
+endif
 MABUR_SITE = https://github.com/gilankpam/mabur.git
 MABUR_SITE_METHOD = git
 MABUR_INSTALL_STAGING = NO
