@@ -25,6 +25,8 @@ sysupg() {
     fi
 }
 
+. /usr/lib/carve-part.sh
+
 mount -t proc proc /proc || exit 1
 mount -t sysfs sys /sys || exit 1
 mount -t tmp /tmp || exit 1
@@ -77,12 +79,9 @@ then
   NEW_SIZE=$(( FIRST_SIZE + 1 ))
   START_MB=$(( LAST_END + 20 ))
   END_MB=$(( START_MB + NEW_SIZE ))
-  parted --fix -s $BOOT_DISK mkpart primary ext4 "${START_MB}MiB" "${END_MB}MiB"
-  partprobe $BOOT_DISK
-  PART_NUM=$(parted -s $BOOT_DISK print | awk '/^ [0-9]+/ {print $1}' | tail -1)
-  parted -s $BOOT_DISK name $PART_NUM overlayfs
-  NEW_PARTITION="${BOOT_DISK}p${PART_NUM}"
-  mke2fs -t ext4 -F "$NEW_PARTITION" -L overlayfs
+  if PART_NUM=$(carve_part overlayfs primary ext4 "${START_MB}MiB" "${END_MB}MiB" 2>/dev/kmsg); then
+    mke2fs -t ext4 -F "${BOOT_DISK}p${PART_NUM}" -L overlayfs
+  fi
   overlayfs_dev=$(blkid  | grep 'LABEL="overlayfs"'| cut -d : -f 1)
 fi
 mount $overlayfs_dev /overlay
@@ -108,12 +107,15 @@ then
   LAST_END=$(parted -s $BOOT_DISK unit MiB print | awk '/^ [0-9]+/ {print $3}' | tr -d 'MiB' | sort -n | tail -1 | cut -d. -f1)
   START_MB=$(( LAST_END + 20 ))
   END_MB=$(( START_MB + 64 ))
-  parted --fix -s $BOOT_DISK mkpart primary fat32 "${START_MB}MiB" "${END_MB}MiB"
-  partprobe $BOOT_DISK
-  PART_NUM=$(parted -s $BOOT_DISK print | awk '/^ [0-9]+/ {print $1}' | tail -1)
-  parted -s $BOOT_DISK name $PART_NUM CONFIG
-  NEW_PARTITION="${BOOT_DISK}p${PART_NUM}"
-  mkfs.vfat -F 32 $NEW_PARTITION -n CONFIG
+  if PART_NUM=$(carve_part CONFIG primary fat32 "${START_MB}MiB" "${END_MB}MiB" 2>/dev/kmsg); then
+    mkfs.vfat -F 32 "${BOOT_DISK}p${PART_NUM}" -n CONFIG
+  else
+    # The disk keeps the layout of an image that had no CONFIG partition
+    # (a sysupgrade never repartitions), so DVR already fills it. S00config
+    # falls back to /config on the overlay; a full-image flash gets the
+    # partition.
+    echo '<1>config: no room for a CONFIG partition -- /config stays on the overlay' > /dev/kmsg
+  fi
   config_dev=$(blkid  | grep 'LABEL="CONFIG"'| cut -d : -f 1)
 fi
 
@@ -122,12 +124,9 @@ if [ -z $dvr_dev ]
 then
   LAST_END=$(parted -s $BOOT_DISK print | awk '/^ [0-9]+/ {print $3}' | tr -d 'MB' | sort -n | tail -1)
   START_MB=$(( LAST_END + 21 ))
-  parted --fix -s $BOOT_DISK mkpart primary fat32 "${START_MB}MB" 100%
-  partprobe $BOOT_DISK
-  PART_NUM=$(parted -s $BOOT_DISK print | awk '/^ [0-9]+/ {print $1}' | tail -1)
-  parted -s $BOOT_DISK name $PART_NUM DVR
-  NEW_PARTITION="${BOOT_DISK}p${PART_NUM}"
-  mkfs.vfat $NEW_PARTITION -n DVR
+  if PART_NUM=$(carve_part DVR primary fat32 "${START_MB}MB" 100% 2>/dev/kmsg); then
+    mkfs.vfat "${BOOT_DISK}p${PART_NUM}" -n DVR
+  fi
   dvr_dev=$(blkid  | grep 'LABEL="DVR"'| cut -d : -f 1)
 fi
 
