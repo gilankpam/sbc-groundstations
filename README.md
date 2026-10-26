@@ -107,6 +107,13 @@ Invalid values are replaced by their defaults and logged to the console.
 Deleting a file restores the board's default on the next boot; the pristine
 defaults are kept at `/usr/share/config-defaults/`.
 
+A box that reached this image by `sysupgrade` from one without a `CONFIG`
+partition keeps its old partition table, where `DVR` already fills the disk.
+There is no room to carve `CONFIG`, so the files live in `/config` on the
+overlay instead (edit them over ssh, not from a PC), and the boot log says
+`config: no room for a CONFIG partition`. Flash the full image to get the
+partition.
+
 # Factory Reset
 
 - Hold the `Right` button during boot.
