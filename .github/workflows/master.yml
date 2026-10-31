@@ -5,16 +5,7 @@ on:
       - master
     tags:
       - 'v*'
-  pull_request:
-    branches:
-      - master
   workflow_dispatch:
-
-# A newer push to the same PR supersedes the running build. Master and
-# tag builds are never cancelled, so every release still gets published.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Resolve mabur and devourer master once, for every board. The package .mk
