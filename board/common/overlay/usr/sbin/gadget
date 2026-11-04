@@ -7,7 +7,31 @@ kill -HUP 1
 if [ x$1 = "xinit" -a ! -f /tmp/gadget ] ; then
 	exit 0
 fi
-rm -f /tmp/gadget
+
+# What gadget mode shuts down: all of it records to DVR or writes to /config,
+# and the PC owns both while the gadget exists.
+GADGET_STOP_SERVICES="S98gsweb S97maburplay S96maburgs"
+GADGET_START_SERVICES="S96maburgs S97maburplay S98gsweb"
+
+# gsweb runs under python3, so pidof cannot find it by name.
+service_pids() {
+	pidof maburplay maburgs
+	ps | awk '$NF=="/usr/bin/gsweb.py"{print $1}'
+}
+
+stop_services() {
+	for s in $GADGET_STOP_SERVICES; do
+		[ -x /etc/init.d/$s ] && /etc/init.d/$s stop
+	done
+	# The stop scripts only signal: give the daemons time to save and exit,
+	# since a late write would land on a filesystem the PC now owns.
+	for i in 1 2 3 4 5; do
+		[ -z "$(service_pids)" ] && return
+		sleep 1
+	done
+	kill -9 $(service_pids) 2>/dev/null
+	sleep 1
+}
 
 # debugfs
 [ ! -e /sys/kernel/debug/usb/fcc00000.usb/mode ] && mount -t debugfs none /sys/kernel/debug
@@ -26,6 +50,10 @@ fi
 # 若存在 gadget g1 则先删除
 if [ -d /sys/kernel/config/usb_gadget/g1 ]; then
 
+	# Run over the gadget's own serial or network link, the steps below cut
+	# that link. /config and the services still have to come back.
+	trap '' HUP PIPE
+
 	ifdown usb0
 
 	echo ">>>>>>>>>>>>g1 is exist! delete it!"
@@ -41,10 +69,22 @@ if [ -d /sys/kernel/config/usb_gadget/g1 ]; then
 	find configs -name 'strings' -exec rmdir -v {}/0x409 \;
 	ls -d configs/* | xargs rmdir -v
 	ls -d strings/* | xargs rmdir -v
+	# lun.0 goes with its function, any other LUN has to be removed first.
+	CONFIG_EXPORTED=""
+	if [ -d functions/mass_storage.usb0/lun.1 ]; then
+		CONFIG_EXPORTED=1
+		rmdir -v functions/mass_storage.usb0/lun.1
+	fi
 	ls -d functions/* | xargs rmdir -v
 	cd ..
 	rmdir -v g1
 	modprobe -r libcomposite > /dev/null 2>&1 
+	# Give /config back and restart what creating the gadget stopped.
+	[ -n "$CONFIG_EXPORTED" ] && /etc/init.d/S00config start
+	for s in $GADGET_START_SERVICES; do
+		# Detached: daemons holding this script's stdout keep an ssh session open.
+		[ -x /etc/init.d/$s ] && /etc/init.d/$s start </dev/null >/dev/null 2>&1
+	done
 	echo ">>>>>>>>>>>>>Delete success, Run script again to create the gadget!!"
 	exit 0
 fi
@@ -66,6 +106,9 @@ MASS_FILE=$(/usr/sbin/auto-dvr.sh  | cut -d: -f 2)
 echo ">>>>>>>>>>>>>Starting create gadget......"
 cd /sys/kernel/config/usb_gadget/
 mkdir g1
+# Only now: with g1 in place auto-dvr.sh refuses mounts on its own, so there is
+# no gap in which something can mount the partition about to be exported.
+rm -f /tmp/gadget
 cd g1
 echo "0x1d6b" > "idVendor"  # Linux Foundation
 echo "0x0104" > "idProduct" # Multifunction Composite Gadget
@@ -103,7 +146,36 @@ mkdir -p functions/mass_storage.usb0
 echo 1 > functions/mass_storage.usb0/stall
 # echo 1 > functions/mass_storage.usb0/lun.0/ro
 echo 1 > functions/mass_storage.usb0/lun.0/removable
+
+# FAT cannot be shared: the board has to let go of a partition before the PC
+# gets it. A second `gadget` run restarts the services whatever happens below.
+stop_services
+sync
+# Run by hand on a live box, DVR is usually mounted already. Never export it
+# while it is: the PC gets no DVR drive rather than a corrupted one.
+if grep -q ' /media/dvr ' /proc/mounts && ! umount /media/dvr; then
+	echo "gadget: could not unmount /media/dvr, not exporting it" > /dev/kmsg
+	MASS_FILE=""
+fi
 echo $MASS_FILE > functions/mass_storage.usb0/lun.0/file
+
+# Export the CONFIG partition as a second disk, so the toml files can be edited
+# from the PC. Only a real partition qualifies: without one /config is a plain
+# directory on the overlay (see /etc/init.d/S00config), nothing to export.
+CONFIG_DEV=$(awk '$2=="/config"{print $1}' /proc/mounts)
+if [ -b "$CONFIG_DEV" ]; then
+	echo ">>>>>>>>Create CONFIG LUN ......"
+	if /etc/init.d/S00config stop; then
+		LUN=functions/mass_storage.usb0/lun.1
+		if ! { mkdir -p $LUN && echo 1 > $LUN/removable && echo "$CONFIG_DEV" > $LUN/file; }; then
+			echo "gadget: could not export CONFIG, keeping it on the board" > /dev/kmsg
+			rmdir $LUN 2>/dev/null
+			/etc/init.d/S00config start
+		fi
+	else
+		echo "gadget: could not unmount /config, not exporting it" > /dev/kmsg
+	fi
+fi
 
 # 创建adb function
 # mkdir -p functions/ffs.adb

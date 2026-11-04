@@ -127,9 +127,18 @@ are lost and the board's defaults are restored.
 - Hold the `Left` button during boot to enable USB OTG gadget mode.
 
   Via the OTG port, you will get:
-  - DVR access
+  - DVR access (the SD card if one is inserted, otherwise the `DVR` partition)
+  - `CONFIG` partition access, as a second drive (not on a box without a
+    `CONFIG` partition, see [Configuration](#configuration))
   - Serial connection
   - Network connection (SBC is on `192.168.5.1`)
+
+  On the RunCam WiFiLink this is the port labeled `Type-C`. The port labeled
+  `OTG` is host-only.
+
+  To let the PC write to these drives safely, gadget mode stops `maburgs`,
+  `maburplay` and `gsweb`, so there is no video until you leave it. Eject the
+  drives on the PC, then reboot to apply your edits and return to normal.
 
 # Custom Build (Linux/WSL2)
 
