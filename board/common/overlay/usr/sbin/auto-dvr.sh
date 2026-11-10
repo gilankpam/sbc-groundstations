@@ -12,6 +12,10 @@ key="$1"
 
 # check if we are in gadget mode
 [ -d /sys/kernel/config/usb_gadget/g1 ] && exit 1
+# Or about to be: /init sets this flag and rcS starts maburgs before gadget runs.
+# A mount now would leave DVR mounted here while the PC writes to it. autofs
+# always passes a key; gadget calls this with none to ask what to export.
+[ -n "$key" ] && [ -f /tmp/gadget ] && exit 1
 
 ROOT_DEV=$(readlink -f /dev/disk/by-partlabel/rootfs)
 DEV=""
